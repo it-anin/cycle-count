@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  อนุญาต HTTP ธรรมดาเฉพาะเครือข่ายภายใน — ใช้ตอน dev เท่านั้น
+
+  ไฟล์นี้อยู่ใน src/debug/ จึงถูกรวมเข้าเฉพาะ debug build
+  release build จะไม่มีไฟล์นี้และยังบล็อก cleartext ตามค่าเริ่มต้นของ Android
+
+  ทำไมต้องมี: Android ตั้งแต่ API 28 บล็อก HTTP ธรรมดาโดยปริยาย
+  ตอน dev เครื่อง PDA เรียก API ที่ http://<ip เครื่องคอม>:3000 ใน LAN จึงโดนบล็อก
+  อาการคือล็อกอินผ่าน (คุย https ไปหา Supabase ได้) แต่เรียก API ไม่ได้
+
+  ระบุเป็น IP ตรง ๆ ไม่ใช่เปิด cleartext ทั้งเครื่อง — ถ้าเปลี่ยนเครื่อง dev
+  หรือ IP เปลี่ยน ต้องมาเพิ่มที่นี่ (ตั้งใจให้ต้องแก้ จะได้ไม่เผลอเปิดกว้างค้างไว้)
+-->
+<network-security-config>
+    <domain-config cleartextTrafficPermitted="true">
+        <domain includeSubdomains="false">192.168.1.147</domain>
+        <domain includeSubdomains="false">10.0.2.2</domain>
+        <domain includeSubdomains="false">localhost</domain>
+    </domain-config>
+</network-security-config>

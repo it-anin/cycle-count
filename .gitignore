@@ -1,0 +1,58 @@
+# dependencies
+node_modules/
+.pnpm-store/
+
+# builds
+dist/
+.next/
+out/
+build/
+*.tsbuildinfo
+
+# turbo
+.turbo/
+
+# env — ครอบทุกตัวแปรของ .env รวมไฟล์สำรอง เช่น .env.backup-*
+# (.env.*.local อย่างเดียวไม่พอ ไฟล์อย่าง .env.backup จะหลุด)
+.env
+.env.*
+!.env.example
+
+# ข้อมูลจริงจากระบบ POS — ห้ามขึ้น git
+# R05106.CSV มีคอลัมน์ราคา (CF_FMLPRICE / CF_BOTTOMPRICE / CF_TOPPRICE) = ข้อมูลลับทางการค้า
+# LABELMASTER.xlsx เป็น master ฉลากยา
+# เป็นไฟล์ import ครั้งเดียว ไม่ใช่ซอร์สโค้ด — วางไว้ในเครื่องแล้วรันสคริปต์อัปโหลดพอ
+# ถ้าลบทีหลังก็ยังค้างใน git history ตลอดไป จึงกันตั้งแต่แรก
+*.CSV
+*.csv
+*.xlsx
+*.xls
+
+# drizzle
+packages/db/drizzle/meta/_journal.json.bak
+
+# capacitor
+# ⚠ ห้าม ignore apps/pda/android/ ทั้งโฟลเดอร์
+# ข้างในมีโค้ด native ที่เราเขียนเอง (ScanBroadcastPlugin.java รับ broadcast จากเครื่องสแกน),
+# MainActivity ที่ register plugin, gradle wrapper ที่อัปเป็น 8.7 ให้รองรับ JDK 21
+# และ AndroidManifest ที่ล็อก orientation — ตัดทิ้งแล้วสร้างใหม่จาก cap add ไม่ได้
+# ส่วน build artifacts มี apps/pda/android/.gitignore ของ Capacitor คุมอยู่แล้ว
+apps/pda/ios/
+apps/pda/.capacitor/
+
+# logs
+*.log
+npm-debug.log*
+pnpm-debug.log*
+
+# editor / os
+.DS_Store
+Thumbs.db
+.vscode/*
+!.vscode/extensions.json
+.idea/
+
+# test/coverage
+coverage/
+playwright-report/
+test-results/

@@ -1,0 +1,1048 @@
+/**
+ * หน้าจอนับสต็อกแบบสมุดบัญชี — ปรับสำหรับจอ PDA 480×800 แนวตั้ง
+ * ค่าสีและระยะตรงกับแบบที่ 5 ที่อนุมัติไว้
+ */
+
+:root {
+  --paper: #ffffff;
+  --sub: #f1f4f7;
+  --ink: #101c28;
+  --ink2: #5a6b7b;
+  --ink3: #8798a6;
+  --line: #dde4ea;
+  --line2: #c6d1da;
+
+  --amber: #e07c05;
+  --amber-ink: #8f4f02;
+  --amber-wash: #fdf1e1;
+
+  --ok: #0e8a5f;
+  --short: #c63a2f;
+  --over: #2a6da8;
+
+  --font: Roboto, 'Noto Sans Thai', 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: var(--font);
+  font-size: 16px;
+  line-height: 1.35;
+  background: var(--paper);
+  color: var(--ink);
+  /* คลังใช้นิ้ว/ถุงมือ ไม่ต้องมีดีเลย์รอ double-tap zoom */
+  touch-action: manipulation;
+  -webkit-tap-highlight-color: transparent;
+  overscroll-behavior: none;
+}
+
+button {
+  font-family: inherit;
+  cursor: pointer;
+}
+
+:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: -2px;
+}
+
+/* ── ตอนบูต ─────────────────────────────────────────────────── */
+
+.cc-boot {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 10px;
+  color: var(--ink2);
+}
+
+.cc-boot--error {
+  color: var(--short);
+  font-weight: 700;
+}
+
+.cc-boot__detail {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 13px;
+  color: var(--ink3);
+  font-weight: 400;
+  max-width: 88%;
+  text-align: center;
+  word-break: break-word;
+}
+
+.cc-boot button {
+  margin-top: 8px;
+  border: 0;
+  background: var(--ink);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 14px 28px;
+}
+
+.cc-boot .cc-boot__alt {
+  margin-top: 0;
+  background: none;
+  color: var(--ink2);
+  font-weight: 400;
+  font-size: 14px;
+  padding: 8px 16px;
+  text-decoration: underline;
+}
+
+/* ── หน้าล็อกอิน ────────────────────────────────────────────── */
+
+.lg {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  padding: 20px 18px 18px;
+  gap: 14px;
+  user-select: none;
+}
+
+.lg-head {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+}
+
+.lg-title {
+  margin: 8px 0 0;
+  font-size: 26px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.lg-sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink2);
+}
+
+.lg-code {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.lg-code__input {
+  height: 56px;
+  border: 2px solid var(--line2);
+  background: var(--paper);
+  padding: 0 14px;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--ink);
+  text-transform: uppercase;
+}
+
+.lg-code__input:focus {
+  outline: none;
+  border-color: var(--amber);
+  background: var(--amber-wash);
+}
+
+.lg-code__input::placeholder {
+  color: var(--ink3);
+  font-weight: 400;
+  text-transform: none;
+}
+
+.lg-pin {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.lg-pin__dots {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  height: 56px;
+  border: 2px solid var(--line2);
+  padding: 0 16px;
+  background: var(--sub);
+}
+
+.lg-dot {
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  border: 2px solid var(--line2);
+  background: none;
+}
+
+.lg-dot--on {
+  background: var(--amber);
+  border-color: var(--amber);
+}
+
+.lg-code__hint {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink3);
+}
+
+.lg-error {
+  margin: 0;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--short);
+  background: #fbedeb;
+  padding: 10px 12px;
+  /* ข้อความ error ของเครือข่ายมีหลายบรรทัดและยาว ต้องตัดคำได้ */
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 140px;
+  overflow-y: auto;
+}
+
+.lg-dev {
+  margin: 0;
+  font-size: 12.5px;
+  color: var(--amber-ink);
+  background: var(--amber-wash);
+  padding: 8px 12px;
+}
+
+.lg-pad {
+  margin-top: auto;
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 1px;
+  background: var(--line2);
+  border: 1px solid var(--line2);
+}
+
+.lg-pad .cc-key {
+  height: 62px;
+  font-size: 26px;
+}
+
+.lg-go {
+  border: 0;
+  background: var(--amber);
+  color: #fff;
+  font-size: 19px;
+  font-weight: 700;
+  padding: 18px;
+}
+
+.lg-go:disabled {
+  background: var(--line2);
+  cursor: default;
+}
+
+/* ── โครงหน้าจอ ─────────────────────────────────────────────── */
+
+.cc {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  user-select: none;
+}
+
+.cc-k {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  font-weight: 700;
+}
+
+/* กราฟิกบาร์โค้ด — ถูกกว่าการฝัง SVG และคมทุกความละเอียด */
+.cc-bars {
+  width: 24px;
+  height: 22px;
+  flex: none;
+  color: var(--amber-ink);
+  background: repeating-linear-gradient(
+    90deg,
+    currentColor 0 2px,
+    transparent 2px 4px,
+    currentColor 4px 5px,
+    transparent 5px 8px,
+    currentColor 8px 11px,
+    transparent 11px 13px
+  );
+}
+
+.cc-bars--lg {
+  width: 72px;
+  height: 54px;
+  color: var(--line2);
+}
+
+/* ── แถบบน: ใครล็อกอิน + นับรอบไหน ──────────────────────────── */
+
+.cc-top {
+  flex: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  padding: 6px 14px;
+  background: var(--ink);
+  color: #fff;
+  font-family: var(--mono);
+  font-size: 12.5px;
+}
+
+.cc-top__user,
+.cc-top__session {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-top__user {
+  border: 0;
+  background: none;
+  color: inherit;
+  font: inherit;
+  padding: 2px 0;
+  text-align: left;
+  min-width: 0;
+}
+
+.cc-top__session b {
+  color: #ffb020;
+}
+
+/* ป้ายโหมด — ให้คนนับรู้ตลอดว่ากำลังนับรอบแบบไหน */
+.cc-mode {
+  display: inline-block;
+  font-family: var(--font);
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 7px;
+  margin-right: 7px;
+  vertical-align: 1px;
+}
+
+.cc-mode--blind {
+  background: #fff;
+  color: var(--ink);
+}
+
+.cc-mode--recount {
+  background: var(--amber);
+  color: #fff;
+}
+
+/* ── ช่องสแกน ───────────────────────────────────────────────── */
+
+.cc-scan {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  height: 52px;
+  padding: 0 12px 0 14px;
+  background: var(--amber-wash);
+  border-bottom: 2px solid var(--amber);
+}
+
+.cc-scan--bad {
+  background: #fbedeb;
+  border-bottom-color: var(--short);
+}
+
+.cc-scan--bad .cc-bars {
+  color: var(--short);
+}
+
+.cc-scan--good {
+  background: #e9f6f0;
+  border-bottom-color: var(--ok);
+}
+
+.cc-scan--good .cc-bars {
+  color: var(--ok);
+}
+
+.cc-scan__input {
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  background: none;
+  font-family: var(--mono);
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ink);
+  padding: 0;
+}
+
+.cc-scan__input::placeholder {
+  color: var(--ink3);
+  font-weight: 400;
+}
+
+.cc-scan__input:focus {
+  outline: none;
+}
+
+.cc-scan__hint {
+  flex: none;
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--amber-ink);
+  white-space: nowrap;
+  max-width: 150px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-scan__hint--bad {
+  color: var(--short);
+}
+
+.cc-scan__hint--good {
+  color: var(--ok);
+}
+
+.cc-scan__hint--warn {
+  color: var(--over);
+}
+
+.cc-scan__hint--wait {
+  color: var(--ink3);
+}
+
+.cc-scan__manual {
+  flex: none;
+  border: 1px solid var(--line2);
+  background: var(--paper);
+  color: var(--ink2);
+  font-size: 12px;
+  font-weight: 700;
+  padding: 7px 9px;
+}
+
+/* ── หัวตาราง ───────────────────────────────────────────────── */
+
+.cc-colhead {
+  flex: none;
+  display: grid;
+  grid-template-columns: 1fr 68px 58px;
+  gap: 6px;
+  padding: 5px 14px;
+  background: var(--sub);
+  border-bottom: 1px solid var(--line2);
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  font-weight: 700;
+}
+
+.cc-colhead span + span {
+  text-align: right;
+}
+
+/* ── โหมดปิดยอด: ไม่มีคอลัมน์ผลต่าง ─────────────────────────── */
+/* override ทั้งหัวตารางและแถวพร้อมกัน ไม่งั้นคอลัมน์จะเหลื่อมกัน */
+
+.cc--blind .cc-colhead {
+  grid-template-columns: 1fr 68px;
+}
+
+.cc--blind .cc-row {
+  grid-template-columns: 5px 1fr 68px;
+  padding-right: 14px;
+}
+
+/* ── สมุดบัญชี ──────────────────────────────────────────────── */
+
+.cc-rows {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+}
+
+.cc-row {
+  display: grid;
+  grid-template-columns: 5px 1fr 68px 58px;
+  gap: 6px;
+  align-items: center;
+  width: 100%;
+  padding: 8px 14px 8px 0;
+  border: 0;
+  border-bottom: 1px solid var(--line);
+  background: var(--paper);
+  text-align: left;
+  font-size: 16px;
+  color: inherit;
+}
+
+.cc-row--new {
+  background: var(--amber-wash);
+}
+
+.cc-row--editing {
+  background: #fff5e2;
+  box-shadow: inset 0 0 0 2px var(--amber);
+}
+
+.cc-row__stripe {
+  align-self: stretch;
+  background: var(--line2);
+}
+
+.cc-row__stripe--match {
+  background: var(--ok);
+}
+
+.cc-row__stripe--short {
+  background: var(--short);
+}
+
+.cc-row__stripe--over {
+  background: var(--over);
+}
+
+.cc-row__stripe--unknown {
+  background: var(--ink3);
+}
+
+/* โหมดปิดยอด — สีกลาง ไม่สื่อสถานะใด ๆ */
+.cc-row__stripe--plain {
+  background: var(--line2);
+}
+
+.cc-row--flagged .cc-row__stripe {
+  background: repeating-linear-gradient(
+    45deg,
+    var(--short) 0 4px,
+    transparent 4px 8px
+  );
+  background-color: #f4c4bf;
+}
+
+.cc-row__main {
+  min-width: 0;
+  padding-left: 9px;
+}
+
+.cc-row__sku {
+  display: flex;
+  align-items: baseline;
+  gap: 7px;
+  font-family: var(--mono);
+  font-size: 13.5px;
+  font-weight: 700;
+}
+
+.cc-row__loc {
+  font-family: var(--font);
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink2);
+  background: var(--sub);
+  padding: 1px 5px;
+}
+
+.cc-row--new .cc-row__loc,
+.cc-row--editing .cc-row__loc {
+  background: #fff;
+}
+
+/* breakdown ของหน่วยที่ยิงไปในแถวนี้ — แตะหน่วยไหนก็แก้จำนวนหน่วยนั้น */
+.cc-row__units {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px;
+  margin-top: 4px;
+}
+
+.cc-unit {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 3px;
+  border: 1px solid var(--line2);
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--font);
+  font-size: 13px;
+  padding: 3px 8px;
+  min-height: 30px;
+}
+
+.cc-unit b {
+  font-family: var(--mono);
+  font-size: 15px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-unit i {
+  font-style: normal;
+  font-size: 11px;
+  color: var(--ink3);
+}
+
+.cc-unit--on {
+  border-color: var(--amber);
+  background: var(--amber-wash);
+  box-shadow: inset 0 0 0 1px var(--amber);
+}
+
+.cc-row__base {
+  font-family: var(--mono);
+  font-size: 12.5px;
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-row__name {
+  display: block;
+  font-size: 12.5px;
+  color: var(--ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-row--flagged .cc-row__name {
+  color: var(--short);
+  font-weight: 700;
+}
+
+.cc-row__qty,
+.cc-row__var {
+  font-family: var(--mono);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
+
+.cc-row__qty {
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.cc-row--new .cc-row__qty,
+.cc-row--editing .cc-row__qty {
+  background: #fff;
+  border: 1.5px solid var(--amber);
+  padding: 2px 4px;
+  text-align: center;
+}
+
+.cc-row__var {
+  font-size: 13.5px;
+  font-weight: 700;
+  color: var(--ink3);
+}
+
+.cc-row__var--match {
+  color: var(--ok);
+}
+
+.cc-row__var--short {
+  color: var(--short);
+}
+
+.cc-row__var--over {
+  color: var(--over);
+}
+
+/* ── ยังไม่ได้นับอะไร ───────────────────────────────────────── */
+
+.cc-empty {
+  padding: 64px 32px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  text-align: center;
+}
+
+.cc-empty__title {
+  margin: 12px 0 0;
+  font-size: 17px;
+  font-weight: 700;
+}
+
+.cc-empty__sub {
+  margin: 0;
+  font-size: 14px;
+  color: var(--ink2);
+}
+
+.cc-empty__ready {
+  margin: 10px 0 0;
+  font-size: 12.5px;
+  color: var(--ok);
+  font-weight: 700;
+}
+
+.cc-empty__dev {
+  margin: 14px 0 0;
+  font-size: 12.5px;
+  color: var(--amber-ink);
+  background: var(--amber-wash);
+  padding: 8px 12px;
+  line-height: 1.5;
+}
+
+/* ── ท้ายจอ: ยอดรวม + ส่งผล ─────────────────────────────────── */
+
+.cc-foot {
+  flex: none;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 9px 14px;
+  background: var(--sub);
+  border-top: 1px solid var(--line2);
+}
+
+.cc-foot__stat {
+  display: flex;
+  flex-direction: column;
+  line-height: 1.1;
+}
+
+.cc-foot__stat b {
+  font-family: var(--mono);
+  font-size: 21px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-foot__dev {
+  margin-left: auto;
+  border: 1px solid var(--line2);
+  background: var(--paper);
+  color: var(--ink2);
+  font-size: 12.5px;
+  font-weight: 700;
+  padding: 12px 10px;
+}
+
+.cc-foot__send {
+  border: 0;
+  background: var(--ink);
+  color: #fff;
+  font-size: 16px;
+  font-weight: 700;
+  padding: 15px 16px;
+  min-width: 140px;
+}
+
+.cc-foot__dev + .cc-foot__send {
+  min-width: 0;
+  flex: 1;
+}
+
+.cc-foot__send:disabled {
+  background: var(--line2);
+  color: #fff;
+  cursor: default;
+}
+
+/* ไม่มีปุ่มทดสอบ (โหมด production) → ดันปุ่มส่งไปชิดขวา */
+.cc-foot > .cc-foot__send:last-child {
+  margin-left: auto;
+}
+
+/* ── แผงแก้จำนวน (แทนที่ท้ายจอตอนแตะแถว) ───────────────────── */
+
+.cc-pad {
+  flex: none;
+  background: var(--sub);
+  border-top: 2px solid var(--amber);
+}
+
+.cc-pad__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 7px 14px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cc-pad__ctx {
+  min-width: 0;
+  font-size: 12.5px;
+  color: var(--ink2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.cc-pad__ctx b {
+  font-family: var(--mono);
+  color: var(--ink);
+}
+
+.cc-pad__val {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 26px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-pad__val i {
+  font-family: var(--font);
+  font-style: normal;
+  font-size: 12px;
+  color: var(--ink3);
+}
+
+.cc-pad__grid {
+  display: grid;
+  grid-template-columns: repeat(5, 1fr);
+  gap: 1px;
+  background: var(--line2);
+  border-top: 1px solid var(--line2);
+}
+
+.cc-key {
+  border: 0;
+  background: var(--paper);
+  color: var(--ink);
+  font-family: var(--mono);
+  font-size: 24px;
+  font-weight: 700;
+  height: 54px;
+}
+
+.cc-key:active {
+  background: var(--amber-wash);
+}
+
+.cc-key--fn {
+  background: var(--sub);
+  font-family: var(--font);
+  font-size: 17px;
+  color: var(--ink2);
+}
+
+.cc-key--danger {
+  background: var(--sub);
+  font-family: var(--font);
+  font-size: 15px;
+  color: var(--short);
+}
+
+.cc-key--go {
+  background: var(--amber);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 16px;
+}
+
+/* ── ยืนยันก่อนส่ง ──────────────────────────────────────────── */
+
+.cc-sheet {
+  position: absolute;
+  inset: 0;
+  background: rgba(16, 28, 40, 0.55);
+  display: flex;
+  align-items: flex-end;
+}
+
+.cc-sheet__panel {
+  width: 100%;
+  background: var(--paper);
+  padding: 18px 18px 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.cc-sheet__title {
+  margin: 0;
+  font-size: 20px;
+  font-weight: 700;
+}
+
+.cc-sheet__stats {
+  margin: 0;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 1px;
+  background: var(--line);
+  border: 1px solid var(--line);
+}
+
+.cc-sheet__stats--3 {
+  grid-template-columns: repeat(3, 1fr);
+}
+
+.cc-sheet__stats > div {
+  background: var(--sub);
+  padding: 8px 10px;
+}
+
+.cc-sheet__stats dt {
+  font-size: 10.5px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink3);
+  font-weight: 700;
+}
+
+.cc-sheet__stats dd {
+  margin: 2px 0 0;
+  font-family: var(--mono);
+  font-size: 22px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.v-match {
+  color: var(--ok);
+}
+
+.v-short {
+  color: var(--short);
+}
+
+.v-over {
+  color: var(--over);
+}
+
+.cc-sheet__warn {
+  margin: 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: var(--amber-ink);
+  background: var(--amber-wash);
+  padding: 9px 11px;
+}
+
+.cc-sheet__err {
+  margin: 0;
+  font-size: 13px;
+  color: var(--short);
+  font-weight: 700;
+}
+
+.cc-sheet__warn code {
+  font-family: var(--mono);
+  font-size: 12px;
+  background: #fff;
+  padding: 1px 5px;
+}
+
+/* ── รายการ extra ของ broadcast ตอนยังหาคีย์บาร์โค้ดไม่เจอ ──── */
+
+.cc-diag {
+  border: 1px solid var(--line);
+  max-height: 220px;
+  overflow-y: auto;
+}
+
+.cc-diag__row {
+  display: grid;
+  grid-template-columns: 40% 1fr;
+  gap: 10px;
+  padding: 8px 11px;
+  border-bottom: 1px solid var(--line);
+  font-family: var(--mono);
+  font-size: 13px;
+}
+
+.cc-diag__row:last-child {
+  border-bottom: 0;
+}
+
+.cc-diag__key {
+  font-weight: 700;
+  color: var(--amber-ink);
+  word-break: break-all;
+}
+
+.cc-diag__val {
+  word-break: break-all;
+  user-select: text;
+}
+
+.cc-diag__empty {
+  margin: 0;
+  padding: 14px;
+  font-size: 13px;
+  color: var(--ink2);
+  text-align: center;
+}
+
+.cc-sheet__btns {
+  display: grid;
+  grid-template-columns: 1fr 1.7fr;
+  gap: 10px;
+}
+
+.cc-sheet__btns button {
+  border: 1px solid var(--line2);
+  background: var(--paper);
+  color: var(--ink2);
+  font-size: 17px;
+  font-weight: 700;
+  padding: 16px;
+}
+
+.cc-sheet__ok {
+  background: var(--amber);
+  border-color: var(--amber);
+  color: #fff;
+}
+
+.cc-sheet__btns button:disabled {
+  opacity: 0.6;
+  cursor: default;
+}
+
+/* ── แจ้งผลหลังส่ง ──────────────────────────────────────────── */
+
+.cc-toast {
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  bottom: 76px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  background: var(--ok);
+  color: #fff;
+  font-size: 15px;
+  font-weight: 700;
+  padding: 13px 14px;
+}
+
+.cc-toast button {
+  border: 0;
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+  font-size: 14px;
+  width: 30px;
+  height: 30px;
+  flex: none;
+}
