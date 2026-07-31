@@ -21,7 +21,7 @@
 export const PDA_AUTH_DOMAIN = 'pda.anin.co.th';
 
 /**
- * `EMP-2041` → `emp2041@pda.anin.local`
+ * `EMP-2041` → `emp2041@pda.anin.co.th`
  * ตัดทุกอย่างที่ไม่ใช่ a–z 0–9 ออก ให้ `emp-2041`, `EMP 2041`, `emp2041` เข้าบัญชีเดียวกัน
  */
 export function authEmailForEmployee(employeeCode: string, domain = PDA_AUTH_DOMAIN): string {

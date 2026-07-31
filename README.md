@@ -89,7 +89,7 @@ ETag รวม `mode` ไว้ด้วย ไม่งั้นเครื่
 (20,000 บาร์โค้ด ≈ 400 KB หลัง gzip โหลดครั้งเดียวไม่กี่วินาที ครั้งถัดไปได้ 304 จาก ETag)
 
 ล็อกอินด้วย **รหัสพนักงาน + PIN** ไม่ใช่อีเมล — `authEmailForEmployee()` ใน
-`packages/core/src/auth.ts` แปลง `EMP-2041` → `emp2041@pda.anin.local` ให้ Supabase Auth
+`packages/core/src/auth.ts` แปลง `EMP-2041` → `emp2041@pda.anin.co.th` ให้ Supabase Auth
 หน้าสร้างผู้ใช้ฝั่งแอดมินต้องเรียกฟังก์ชันเดียวกันนี้ ไม่งั้นจะ map ไปคนละบัญชี
 
 ชั้นข้อมูลอยู่ที่ `apps/pda/src/lib/api.ts` เลือก implementation จาก env:
@@ -303,7 +303,10 @@ sync catalog ก่อน แล้วค่อย snapshot เพราะ `exp
 
 ## สถานะ
 
-โครง monorepo, schema, หน้าจอนับสต็อกบน PDA, และ backend ของ Phase 1–2 ทำแล้ว
+ทำแล้ว: โครง monorepo, schema (ขึ้น Supabase จริงแล้ว), หน้าจอนับสต็อกบน PDA,
+backend ทั้งชุด, โปรเจกต์ Android พร้อม plugin รับ broadcast จากเครื่องสแกน
 
-ยังไม่ได้ทำ: หน้าเว็บแอดมิน (อัปโหลด Excel, จัดการรอบนับ, รายงานผลต่าง),
-หน้าเลือกรอบนับบน PDA, และโปรเจกต์ Android (`pnpm --filter @cycle-count/pda cap:add:android`)
+ยังไม่ได้ทำ: หน้าเว็บแอดมิน (อัปโหลด Excel, จัดการรอบนับ, รายงานผลต่าง)
+และหน้าเลือกรอบนับบน PDA
+
+รายละเอียดกฎที่ห้ามละเมิดตอนแก้โค้ด ดูที่ [CLAUDE.md](CLAUDE.md)
