@@ -18,7 +18,14 @@
 import type { BarcodeLookup, CountLinePayload, CountMode } from '@cycle-count/core';
 import { authEmailForEmployee } from '@cycle-count/core';
 
-import { indexEntries, readCatalog, writeCatalog, type CatalogSnapshot } from './catalogCache';
+import {
+  clearAllCatalogs,
+  indexEntries,
+  readCatalog,
+  writeCatalog,
+  type CatalogSnapshot,
+} from './catalogCache';
+import { clearAllLedgers } from './ledgerStorage';
 import { accessToken, supabase } from './supabase';
 
 export interface CurrentUser {
@@ -213,7 +220,9 @@ export const mockApi: CountApi = {
   },
 
   async signOut() {
-    /* mock ไม่มี session ให้ล้าง */
+    // mock ไม่มี session ให้ล้าง แต่สมุดที่นับไว้ตอน dev อยู่ที่เดียวกับของจริง
+    clearAllLedgers(localStorage);
+    await clearAllCatalogs();
   },
 
   async currentSessionToken() {
@@ -309,9 +318,16 @@ export function createHttpApi(baseUrl: string): CountApi {
       );
     },
 
+    /**
+     * ล็อกเอาต์ = ส่งเครื่องต่อให้คนถัดไป จึงต้องล้างของประจำตัวให้หมด
+     * ไม่ใช่แค่ token: สมุดที่ยังไม่ได้ส่งของทุกคน และ catalog ที่แคชไว้
+     * (สมุดแยกตามผู้ใช้อยู่แล้ว แต่ล้างทิ้งเลยชัดกว่าปล่อยค้างให้กู้ผิดตัว)
+     */
     async signOut() {
       await supabase?.auth.signOut();
       catalogIndex = null;
+      clearAllLedgers(localStorage);
+      await clearAllCatalogs();
     },
 
     async currentSessionToken() {

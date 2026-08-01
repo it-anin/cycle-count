@@ -113,8 +113,9 @@ async function readRows(path: string): Promise<{ rows: Row[]; skipped: number }>
   let skipped = 0;
 
   for await (const raw of stream) {
-    // ตัด BOM ออกจากบรรทัดแรก ไม่งั้นชื่อคอลัมน์แรกจะกลายเป็น "﻿CF_BARCODE"
-    const line = header === null ? raw.replace(/^﻿/, '') : raw;
+    // ตัด BOM (U+FEFF) ออกจากบรรทัดแรก ไม่งั้นชื่อคอลัมน์แรกจะกลายเป็น "<BOM>CF_BARCODE"
+    // แล้วหาไม่เจอตอน resolve index — เขียนเป็น escape ไม่ใช่ตัวอักษรจริง จะได้เห็นด้วยตาว่ามีอยู่
+    const line = header === null ? raw.replace(/^\uFEFF/, '') : raw;
     if (!line.trim()) continue;
 
     const cells = splitCsvLine(line);

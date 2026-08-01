@@ -1,0 +1,53 @@
+# CI — ตรวจทุก push และทุก PR
+#
+# ก่อนหน้านี้ไม่มี CI เลย typecheck/test/build จึงรันเฉพาะตอนที่คนนึกได้
+# งานที่สำคัญที่สุดของไฟล์นี้คือกัน contract test ของ PDA ไม่ให้แดงแล้วหลุดขึ้น main
+# (apps/web/src/app/api/pda/contract.test.ts — รูปร่าง JSON ที่ APK บนเครื่องพึ่งพา)
+#
+# ยังไม่รวมเทส integration ที่ต้องมี Postgres จริง — จะเพิ่มเป็น job แยกตอนทำขั้น 0.7
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# push ซ้อนกันบน branch เดียว ให้ยกเลิกอันเก่า
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 9.15.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      - name: typecheck
+        run: pnpm typecheck
+
+      - name: lint
+        run: pnpm lint
+
+      - name: test
+        run: pnpm test
+
+      # build ต้องมี VITE_API_BASE_URL ไม่งั้น vite.config.ts จะหยุดให้ (ตั้งใจ — ดูขั้น 1.9)
+      # ค่าตรงนี้เป็นแค่ placeholder ให้ build ผ่าน ไม่ได้ใช้จริง
+      - name: build
+        run: pnpm build
+        env:
+          VITE_API_BASE_URL: https://ci.invalid

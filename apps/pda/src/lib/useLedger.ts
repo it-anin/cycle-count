@@ -23,6 +23,7 @@ import {
 } from '@cycle-count/core';
 
 import { api, lookup } from './api';
+import { loadLedger, purgeLegacyLedgers, saveLedger } from './ledgerStorage';
 
 export type ScanState =
   | { kind: 'idle' }
@@ -36,32 +37,6 @@ export type SubmitState =
   | { kind: 'done'; saved: number }
   | { kind: 'error'; message: string };
 
-/**
- * v2 = โครง LedgerRow เปลี่ยนเป็นหนึ่งแถวต่อ SKU (มี units ข้างใน)
- * ขึ้นเวอร์ชันเพื่อไม่ให้เครื่องที่มีข้อมูลค้างจากโครงเก่าอ่านแล้วพัง
- */
-const storageKey = (sessionId: string) => `cc:ledger:v2:${sessionId}`;
-
-function load(sessionId: string): LedgerRow[] {
-  try {
-    const raw = localStorage.getItem(storageKey(sessionId));
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as LedgerRow[]) : [];
-  } catch {
-    // ข้อมูลค้างจากเวอร์ชันเก่าหรือ JSON พัง — เริ่มใหม่ดีกว่าจอขาว
-    return [];
-  }
-}
-
-function save(sessionId: string, rows: LedgerRow[]) {
-  try {
-    localStorage.setItem(storageKey(sessionId), JSON.stringify(rows));
-  } catch {
-    // เต็ม/โดนปิด — ไม่ควรทำให้การนับสะดุด
-  }
-}
-
 /** สั่นสั้น = รับแล้ว, สั่นยาวสองจังหวะ = ไม่รู้จัก (ใช้ตอนไม่ได้มองจอ) */
 function buzz(pattern: number | number[]) {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
@@ -69,22 +44,59 @@ function buzz(pattern: number | number[]) {
   }
 }
 
-export function useLedger(sessionId: string | null) {
-  const [rows, setRows] = useState<LedgerRow[]>([]);
+/**
+ * สมุดบัญชีของ **ผู้ใช้คนหนึ่ง ในรอบนับหนึ่ง**
+ *
+ * ต้องรับ userId ด้วย ไม่ใช่แค่ sessionId — เครื่อง PDA ใช้ร่วมกันหลายคน
+ * และทุกคนได้ sessionId เดียวกันจาก /api/pda/session (ดูเหตุผลเต็มใน ledgerStorage.ts)
+ */
+export function useLedger(userId: string | null, sessionId: string | null) {
+  /**
+   * เก็บ rows คู่กับคีย์ที่มันเป็นของ **ใน state ก้อนเดียวกัน**
+   *
+   * ถ้าแยกกัน จังหวะที่ผู้ใช้เปลี่ยน (สลับคนบนเครื่องเดิม) effect ที่ save จะทำงาน
+   * ในคอมมิตเดียวกับ effect ที่ load โดยยังถือ rows ของคนเก่าอยู่ แล้วเขียนทับ
+   * ลงคีย์ของคนใหม่ — คือบั๊กเดิมที่เรากำลังแก้ กลับมาทางประตูหลัง
+   *
+   * ผูกไว้ด้วยกันแล้วเงื่อนไข `loaded.key === key` จะกันจังหวะนั้นได้เอง
+   */
+  const key = userId && sessionId ? `${userId}:${sessionId}` : null;
+  const [loaded, setLoaded] = useState<{ key: string | null; rows: LedgerRow[] }>({
+    key: null,
+    rows: [],
+  });
   const [scanState, setScanState] = useState<ScanState>({ kind: 'idle' });
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' });
-  const [restored, setRestored] = useState(false);
+
+  const rows = loaded.key === key ? loaded.rows : [];
 
   useEffect(() => {
-    if (!sessionId) return;
-    setRows(load(sessionId));
-    setRestored(true);
-  }, [sessionId]);
+    if (!userId || !sessionId) return;
+
+    // คีย์รุ่นก่อนไม่มี userId จึงบอกไม่ได้ว่าเป็นของใคร — ทิ้ง ไม่ใช่รับมาเป็นของคนนี้
+    purgeLegacyLedgers(localStorage);
+
+    setLoaded({
+      key: `${userId}:${sessionId}`,
+      rows: loadLedger(localStorage, userId, sessionId),
+    });
+  }, [userId, sessionId]);
 
   useEffect(() => {
-    if (!sessionId || !restored) return;
-    save(sessionId, rows);
-  }, [sessionId, restored, rows]);
+    if (!userId || !sessionId || loaded.key !== key) return;
+    saveLedger(localStorage, userId, sessionId, loaded.rows);
+  }, [userId, sessionId, key, loaded]);
+
+  /** อัปเดตแถวโดยไม่หลุดจากคีย์ที่กำลังถืออยู่ */
+  const setRows = useCallback(
+    (next: LedgerRow[] | ((prev: LedgerRow[]) => LedgerRow[])) => {
+      setLoaded((prev) => ({
+        key: prev.key,
+        rows: typeof next === 'function' ? next(prev.rows) : next,
+      }));
+    },
+    [],
+  );
 
   const scan = useCallback((barcode: string) => {
     const code = barcode.trim();

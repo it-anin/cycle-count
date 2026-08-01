@@ -16,7 +16,6 @@ import {
   missingRequiredHeaders,
   normalizeRows,
   parseRows,
-  type ImportKind,
   type ParsedRowError,
 } from '@cycle-count/core';
 import { importBatches } from '@cycle-count/db';
@@ -81,7 +80,7 @@ export const POST = withApi(async (req) => {
 
     if (raw.length === 0) throw new Error('ชีตแรกของไฟล์ไม่มีข้อมูล');
 
-    const kind = batch.type as ImportKind;
+    const kind = batch.type;
     const missing = missingRequiredHeaders(kind, Object.keys(raw[0]!));
     if (missing.length > 0) {
       throw new Error(`ไฟล์ขาดคอลัมน์ที่จำเป็น: ${missing.join(', ')}`);

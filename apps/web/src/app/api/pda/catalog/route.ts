@@ -37,18 +37,39 @@ export const GET = withApi(async (req) => {
   const blind = session.mode === 'blind';
 
   /**
-   * ETag จากโหมด + จำนวนบาร์โค้ด + เวลาที่สินค้าถูกแก้ล่าสุด
-   * ถ้า master ไม่เปลี่ยน PDA จะได้ 304 กลับไปโดยไม่ต้องสร้าง payload 2 MB ใหม่
+   * ETag ต้องครอบ **ทุกตารางที่ payload อ่าน** ไม่ใช่แค่ products
    *
-   * ต้องมี mode อยู่ในคีย์ด้วย ไม่งั้นเครื่องที่โหลดตอนรอบเป็น recount แล้วแอดมินสลับกลับเป็น blind
+   * payload ประกอบจากสี่ตาราง: products · barcodes · uom_conversions · expected_stock
+   * คีย์เดิมมีแค่ products.updated_at กับจำนวนบาร์โค้ด ทำให้เส้นทาง import
+   * (upsertUomConversions / upsertExpectedStock ซึ่งไม่แตะ products เลย)
+   * ไม่ทำให้ ETag เปลี่ยน → PDA ส่ง If-None-Match แล้วได้ 304
+   * → **ตัวคูณเก่าค้างในเครื่อง** กล่อง 50 ถูกนับเป็น 1 โดยไม่มีสัญญาณอะไรเลย
+   *
+   * ตอนนี้จับด้วย "จำนวนแถว" ของสองตารางนั้น ซึ่งครอบการเพิ่ม/ลบได้
+   * แต่ยัง **ไม่ครอบการแก้ค่าทับที่แถวเดิม** (เช่นแก้ factor_to_base ของ (sku,uom) ที่มีอยู่)
+   * เพราะสองตารางนี้ไม่มีคอลัมน์ updated_at ให้ดู — การปิดช่องนั้นต้อง migration (ขั้น 1.6 ในแผน)
+   *
+   * mode ต้องอยู่ในคีย์ด้วย ไม่งั้นเครื่องที่โหลดตอนรอบเป็น recount แล้วแอดมินสลับกลับเป็น blind
    * จะได้ 304 แล้วใช้ยอดระบบเก่าที่ค้างใน IndexedDB ต่อ — รั่วทั้งที่ตั้งโหมดถูกแล้ว
+   *
+   * รวมเป็น query เดียวด้วย scalar subquery — ETag ถูกคิดทุกคำขอ ไม่ควรเพิ่ม round trip
    */
   const [stat] = await db
-    .select({ total: count(), updatedAt: max(products.updatedAt) })
+    .select({
+      total: count(),
+      updatedAt: max(products.updatedAt),
+      uomCount: sql<number>`(select count(*)::int from ${uomConversions})`,
+      expectedCount: sql<number>`(
+        select count(*)::int from ${expectedStock}
+        where ${expectedStock.sessionId} = ${sessionId}::uuid
+      )`,
+    })
     .from(barcodes)
     .innerJoin(products, eq(products.sku, barcodes.sku));
 
-  const etag = `W/"${sessionId}-${session.mode}-${stat?.total ?? 0}-${stat?.updatedAt?.getTime() ?? 0}"`;
+  const etag =
+    `W/"${sessionId}-${session.mode}-${stat?.total ?? 0}-${stat?.updatedAt?.getTime() ?? 0}` +
+    `-${stat?.uomCount ?? 0}-${stat?.expectedCount ?? 0}"`;
 
   if (req.headers.get('if-none-match') === etag) {
     return new NextResponse(null, { status: 304, headers: { ETag: etag } });

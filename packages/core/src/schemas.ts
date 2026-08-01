@@ -123,7 +123,7 @@ export function parseRows<K extends ImportKind>(
   rows.forEach((raw, i) => {
     const result = schema.safeParse(raw);
     if (result.success) {
-      valid.push(result.data as z.infer<(typeof importRowSchemas)[K]>);
+      valid.push(result.data);
     } else {
       const msg = result.error.issues
         .map((issue) => `${issue.path.join('.') || '(row)'}: ${issue.message}`)

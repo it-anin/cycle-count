@@ -60,7 +60,7 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
     removeUnit,
     submit,
     dismissSubmit,
-  } = useLedger(session.id);
+  } = useLedger(user.id, session.id);
 
   const [typed, setTyped] = useState('');
   const [manualEntry, setManualEntry] = useState(false);

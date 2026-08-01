@@ -18,6 +18,7 @@ import { db } from '@/lib/db';
 import { createClient as createServerClient } from '@/lib/supabase/server';
 
 import { forbidden, unauthorized } from './http';
+import { setLogUser } from './logging';
 
 export interface AuthContext {
   userId: string;
@@ -74,6 +75,10 @@ export async function requireUser(req: Request): Promise<AuthContext> {
   const userId = token ? await userIdFromToken(token) : await userIdFromCookies();
 
   if (!userId) throw unauthorized();
+
+  // ผูก userId เข้ากับ log ของคำขอนี้ — ทำทันทีที่รู้ตัวตน ก่อนเช็ค profile
+  // เพื่อให้เคส "ล็อกอินผ่านแต่ยังไม่มี profile" ตามตัวได้ว่าเป็นใคร
+  setLogUser(userId);
 
   const [profile] = await db.select().from(profiles).where(eq(profiles.userId, userId)).limit(1);
 

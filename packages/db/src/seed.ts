@@ -23,7 +23,6 @@ if (!url) throw new Error('DIRECT_URL or DATABASE_URL must be set');
 const SKU_COUNT = Number(process.env.SEED_SKU_COUNT ?? 5000);
 const db = createDb(url);
 
-const UOMS = ['PCS', 'PACK', 'CASE'] as const;
 const PACK_FACTOR = 6; // 1 PACK = 6 PCS
 const CASE_FACTOR = 24; // 1 CASE = 24 PCS
 

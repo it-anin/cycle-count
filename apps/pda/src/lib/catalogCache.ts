@@ -73,6 +73,21 @@ export async function clearCatalog(sessionId: string): Promise<void> {
 }
 
 /**
+ * ล้าง catalog ของทุกรอบ — เรียกตอนล็อกเอาต์
+ *
+ * แต่ละรอบนับกินหลาย MB และไม่มีอะไรลบให้เลยตั้งแต่ต้น เครื่องที่ใช้มาหลายรอบ
+ * จะสะสมไปเรื่อย ๆ จนกิน storage ของเครื่อง — ล็อกเอาต์เป็นจังหวะที่ล้างได้ปลอดภัยที่สุด
+ * เพราะคนถัดไปต้องโหลดใหม่ตามรอบของตัวเองอยู่แล้ว
+ */
+export async function clearAllCatalogs(): Promise<void> {
+  try {
+    await tx('readwrite', (s) => s.clear());
+  } catch {
+    /* ไม่เป็นไร */
+  }
+}
+
+/**
  * สร้าง Map บาร์โค้ด → รายการ สำหรับค้นตอนสแกน
  *
  * รอบ blind ฝั่ง server ตัดคีย์ `expectedBaseQty` ทิ้งทั้งอัน (ไม่ได้ส่งเป็น null)
