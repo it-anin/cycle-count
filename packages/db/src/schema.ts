@@ -305,21 +305,40 @@ export const countLines = pgTable(
 /*                          Import audit (การอัปโหลด)                          */
 /* -------------------------------------------------------------------------- */
 
-export const importBatches = pgTable('import_batches', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  type: importType('type').notNull(),
-  /** ต้องระบุเมื่อ type = 'expected' เพราะยอดตั้งต้นผูกกับรอบนับ */
-  sessionId: uuid('session_id').references(() => countSessions.id, { onDelete: 'cascade' }),
-  filename: text('filename').notNull(),
-  /** path ใน Supabase Storage */
-  storagePath: text('storage_path'),
-  status: importStatus('status').notNull().default('pending'),
-  rowCount: integer('row_count').notNull().default(0),
-  errorCount: integer('error_count').notNull().default(0),
-  errors: jsonb('errors').$type<ImportRowError[]>().default(sql`'[]'::jsonb`),
-  createdBy: uuid('created_by'),
-  createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
-});
+export const importBatches = pgTable(
+  'import_batches',
+  {
+    id: uuid('id').primaryKey().defaultRandom(),
+    type: importType('type').notNull(),
+    /** ต้องระบุเมื่อ type = 'expected' เพราะยอดตั้งต้นผูกกับรอบนับ */
+    sessionId: uuid('session_id').references(() => countSessions.id, { onDelete: 'cascade' }),
+    filename: text('filename').notNull(),
+    /** path ใน Supabase Storage */
+    storagePath: text('storage_path'),
+    status: importStatus('status').notNull().default('pending'),
+    /**
+     * เวลาที่เริ่มประมวลผลรอบล่าสุด — ใช้เป็น **lease** ไม่ใช่แค่ข้อมูลประกอบ
+     *
+     * สถานะ `processing` เพียงอย่างเดียวใช้เป็น lock ไม่ได้ เพราะถ้า lambda ถูกฆ่า
+     * (หมด maxDuration 300 วิ หรือ OOM ตอนอ่าน XLSX ใหญ่) catch จะไม่ทำงาน
+     * แถวจึงค้างที่ `processing` ตลอดกาลและอัปโหลดใหม่ไม่ได้เลยจนกว่าจะแก้ DB ด้วยมือ
+     *
+     * มีคอลัมน์นี้แล้วจึงบอกได้ว่า "กำลังทำอยู่จริง" หรือ "ตายไปแล้ว" — เกิน lease ถือว่าตาย
+     */
+    processingStartedAt: timestamp('processing_started_at', { withTimezone: true }),
+    /** จำนวนแถวที่เขียนลง DB สำเร็จแล้ว — ใช้ดูความคืบหน้าและ resume */
+    processedRows: integer('processed_rows').notNull().default(0),
+    rowCount: integer('row_count').notNull().default(0),
+    errorCount: integer('error_count').notNull().default(0),
+    errors: jsonb('errors').$type<ImportRowError[]>().default(sql`'[]'::jsonb`),
+    createdBy: uuid('created_by'),
+    createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // หน้าประวัติการนำเข้าของแอดมินจะ page ตามสถานะ + เวลาล่าสุด
+    index('import_batches_status_created_idx').on(t.status, t.createdAt.desc()),
+  ],
+);
 
 export type ImportRowError = {
   row: number;

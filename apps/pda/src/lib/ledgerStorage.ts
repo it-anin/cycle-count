@@ -67,18 +67,6 @@ export function saveLedger(
 }
 
 /**
- * ล้างสมุดทุกเล่มบนเครื่อง — เรียกตอนล็อกเอาต์
- *
- * ต้องล้าง**ของทุกคน** ไม่ใช่เฉพาะคนที่กำลังออก เพราะเครื่องนี้จะถูกส่งต่อให้คนถัดไป
- * และของที่ยังไม่ได้ส่งของคนก่อนหน้าไม่ควรค้างอยู่ให้กู้ขึ้นมาผิดตัว
- */
-export function clearAllLedgers(storage: Storage): number {
-  const keys = ledgerKeys(storage);
-  for (const key of keys) storage.removeItem(key);
-  return keys.length;
-}
-
-/**
  * ทิ้งสมุดจากคีย์รุ่นก่อน (v1/v2) ที่ไม่มี userId
  *
  * **ห้ามย้ายเข้ามาเป็นของผู้ใช้ปัจจุบัน** — ของพวกนั้นไม่รู้ว่าเป็นของใคร

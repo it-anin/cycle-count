@@ -8,13 +8,7 @@ import { beforeEach, describe, expect, it } from 'vitest';
 
 import type { LedgerRow } from '@cycle-count/core';
 
-import {
-  clearAllLedgers,
-  ledgerStorageKey,
-  loadLedger,
-  purgeLegacyLedgers,
-  saveLedger,
-} from './ledgerStorage';
+import { ledgerStorageKey, loadLedger, purgeLegacyLedgers, saveLedger } from './ledgerStorage';
 
 /** localStorage ปลอมแบบง่าย ๆ — พอสำหรับ getItem/setItem/removeItem/key/length */
 function fakeStorage(): Storage {
@@ -101,25 +95,23 @@ describe('การแยกข้อมูลระหว่างผู้ใ�
   });
 });
 
-describe('clearAllLedgers', () => {
-  it('ล็อกเอาต์แล้วสมุดของทุกคนบนเครื่องต้องหาย', () => {
-    saveLedger(storage, USER_A, SESSION, [row('100098')]);
-    saveLedger(storage, USER_B, SESSION, [row('222222')]);
+describe('การล็อกเอาต์ต้องไม่ทำลายงานที่ยังไม่ได้ส่ง', () => {
+  /*
+   * signOut() ล้างแค่ token ไม่แตะสมุด — คีย์ที่แยกตาม userId กันข้อมูลปนได้อยู่แล้ว
+   * ถ้าวันหนึ่งมีใครเพิ่มการล้างสมุดกลับเข้าไปในการล็อกเอาต์ เทสสองข้อนี้จะแดง
+   */
+  it('ก ล็อกเอาต์แล้วล็อกอินใหม่ ต้องได้ของกลับมาครบตามที่กล่องล็อกเอาต์สัญญาไว้', () => {
+    const rows = [row('100098'), row('100397')];
+    saveLedger(storage, USER_A, SESSION, rows);
 
-    expect(clearAllLedgers(storage)).toBe(2);
-    expect(loadLedger(storage, USER_A, SESSION)).toEqual([]);
-    expect(loadLedger(storage, USER_B, SESSION)).toEqual([]);
+    // จำลองการล็อกเอาต์: ไม่มีการแตะ storage เลย
+    expect(loadLedger(storage, USER_A, SESSION)).toEqual(rows);
   });
 
-  it('ไม่แตะคีย์ของระบบอื่นที่อยู่ใน localStorage เดียวกัน', () => {
-    storage.setItem('cc:scanExtraKey', 'code');
-    storage.setItem('sb-auth-token', 'อะไรสักอย่าง');
+  it('ข ที่มาใช้ต่อยังไม่เห็นของ ก อยู่ดี', () => {
     saveLedger(storage, USER_A, SESSION, [row('100098')]);
 
-    clearAllLedgers(storage);
-
-    expect(storage.getItem('cc:scanExtraKey')).toBe('code');
-    expect(storage.getItem('sb-auth-token')).toBe('อะไรสักอย่าง');
+    expect(loadLedger(storage, USER_B, SESSION)).toEqual([]);
   });
 });
 

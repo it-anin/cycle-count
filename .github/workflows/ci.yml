@@ -4,7 +4,9 @@
 # งานที่สำคัญที่สุดของไฟล์นี้คือกัน contract test ของ PDA ไม่ให้แดงแล้วหลุดขึ้น main
 # (apps/web/src/app/api/pda/contract.test.ts — รูปร่าง JSON ที่ APK บนเครื่องพึ่งพา)
 #
-# ยังไม่รวมเทส integration ที่ต้องมี Postgres จริง — จะเพิ่มเป็น job แยกตอนทำขั้น 0.7
+# **ไม่รวมเทส integration** (`*.integration.test.ts`) เพราะยิงใส่ Postgres ของจริง
+# ซึ่งอ่าน public.stock ของระบบ POS — CI ไม่ควรถือ credential ชุดนั้น
+# รันด้วยมือบนเครื่อง dev: pnpm --filter @cycle-count/web test:integration
 name: CI
 
 on:

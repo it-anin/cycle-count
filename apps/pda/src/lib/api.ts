@@ -18,14 +18,7 @@
 import type { BarcodeLookup, CountLinePayload, CountMode } from '@cycle-count/core';
 import { authEmailForEmployee } from '@cycle-count/core';
 
-import {
-  clearAllCatalogs,
-  indexEntries,
-  readCatalog,
-  writeCatalog,
-  type CatalogSnapshot,
-} from './catalogCache';
-import { clearAllLedgers } from './ledgerStorage';
+import { indexEntries, readCatalog, writeCatalog, type CatalogSnapshot } from './catalogCache';
 import { accessToken, supabase } from './supabase';
 
 export interface CurrentUser {
@@ -56,6 +49,7 @@ export interface SubmitResult {
 export interface CountApi {
   /** ล็อกอินด้วยรหัสพนักงาน + PIN — โหมด mock ผ่านทุกกรณี */
   signIn(employeeCode: string, pin: string): Promise<void>;
+  /** ออกจากระบบ — ล้างแค่ token ไม่แตะสมุดที่ยังไม่ได้ส่ง */
   signOut(): Promise<void>;
   /** null = ยังไม่ได้ล็อกอิน */
   currentSessionToken(): Promise<string | null>;
@@ -220,9 +214,8 @@ export const mockApi: CountApi = {
   },
 
   async signOut() {
-    // mock ไม่มี session ให้ล้าง แต่สมุดที่นับไว้ตอน dev อยู่ที่เดียวกับของจริง
-    clearAllLedgers(localStorage);
-    await clearAllCatalogs();
+    // mock ไม่มี session ให้ล้าง และไม่ล้างสมุดเหมือนของจริง (ดูเหตุผลใน createHttpApi)
+    await Promise.resolve();
   },
 
   async currentSessionToken() {
@@ -319,15 +312,19 @@ export function createHttpApi(baseUrl: string): CountApi {
     },
 
     /**
-     * ล็อกเอาต์ = ส่งเครื่องต่อให้คนถัดไป จึงต้องล้างของประจำตัวให้หมด
-     * ไม่ใช่แค่ token: สมุดที่ยังไม่ได้ส่งของทุกคน และ catalog ที่แคชไว้
-     * (สมุดแยกตามผู้ใช้อยู่แล้ว แต่ล้างทิ้งเลยชัดกว่าปล่อยค้างให้กู้ผิดตัว)
+     * ล็อกเอาต์ — ล้างแค่ token
+     *
+     * **ไม่ล้างสมุด** โดยตั้งใจ: คีย์แยกตาม userId แล้ว (ดู ledgerStorage.ts)
+     * คนถัดไปที่ล็อกอินจึงอ่านของคนก่อนหน้าไม่ได้อยู่แล้ว การล้างเพิ่มไม่ได้ทำให้ปลอดภัยขึ้น
+     * มีแต่จะทำลายงานที่ยังไม่ได้ส่ง ซึ่งตอนนี้กู้ไม่ได้เลยเพราะยังไม่มี outbox
+     * และจะทำให้ข้อความในกล่องล็อกเอาต์ ("ล็อกอินด้วยรหัสเดิมแล้วจะได้กลับมาครบ") กลายเป็นคำโกหก
+     *
+     * **ไม่ล้าง catalog** เช่นกัน — เป็น master data ของรอบนับ ใช้ร่วมกันทุกคน
+     * ล้างแล้วคนถัดไปต้องโหลด 1.5 MB ใหม่โดยไม่จำเป็น (ETag จัดการให้อยู่แล้ว)
      */
     async signOut() {
       await supabase?.auth.signOut();
       catalogIndex = null;
-      clearAllLedgers(localStorage);
-      await clearAllCatalogs();
     },
 
     async currentSessionToken() {

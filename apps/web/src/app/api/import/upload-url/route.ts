@@ -8,6 +8,8 @@
  * คืน path + token ให้ client เรียก supabase.storage.uploadToSignedUrl()
  * แล้วค่อยเรียก /api/import/process ด้วย batchId ที่ได้
  */
+import { randomUUID } from 'node:crypto';
+
 import { eq } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
 import { z } from 'zod';
@@ -40,33 +42,40 @@ export const POST = withApi(async (req) => {
     throw badRequest('การนำเข้ายอดตั้งต้นต้องระบุรอบนับ');
   }
 
-  const [batch] = await db
-    .insert(importBatches)
-    .values({
-      type,
-      sessionId: sessionId ?? null,
-      filename,
-      status: 'pending',
-      createdBy: userId,
-    })
-    .returning({ id: importBatches.id });
+  /*
+   * path คำนวณจาก id ที่ DB สร้างให้ จึงต้อง INSERT ก่อนถึงจะรู้ path
+   * แต่ path เป็นสูตรตายตัว (`<type>/<id>.xlsx`) จึงเขียน storage_path ลงไปได้
+   * ตั้งแต่ INSERT แรกเลย ไม่ต้อง UPDATE ตามทีหลัง — เหลือสองสเต็ปแทนสาม
+   */
+  const batchId = randomUUID();
+  const storagePath = `${type}/${batchId}.xlsx`;
 
-  // ตั้งชื่อไฟล์ตาม batch id — ไม่ชนกันและตามรอยกลับไปหาแถวใน import_batches ได้
-  const storagePath = `${type}/${batch!.id}.xlsx`;
+  await db.insert(importBatches).values({
+    id: batchId,
+    type,
+    sessionId: sessionId ?? null,
+    filename,
+    storagePath,
+    status: 'pending',
+    createdBy: userId,
+  });
 
   const { data, error } = await createAdminClient()
     .storage.from(IMPORT_BUCKET)
     .createSignedUploadUrl(storagePath);
 
-  if (error) throw new Error(`ขอ URL อัปโหลดไม่สำเร็จ: ${error.message}`);
-
-  await db
-    .update(importBatches)
-    .set({ storagePath })
-    .where(eq(importBatches.id, batch!.id));
+  /*
+   * ขอ URL ไม่ผ่าน = แถวที่เพิ่ง INSERT จะกลายเป็นขยะที่ไม่มีวันถูกใช้
+   * ลบทิ้งทันทีแทนที่จะปล่อยค้างให้หน้าประวัติรก (ลบไม่ผ่านก็ไม่เป็นไร
+   * เพราะสถานะยังเป็น pending ซึ่งกวาดทีหลังได้)
+   */
+  if (error) {
+    await db.delete(importBatches).where(eq(importBatches.id, batchId));
+    throw new Error(`ขอ URL อัปโหลดไม่สำเร็จ: ${error.message}`);
+  }
 
   return NextResponse.json({
-    batchId: batch!.id,
+    batchId,
     bucket: IMPORT_BUCKET,
     path: storagePath,
     token: data.token,

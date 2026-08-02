@@ -71,6 +71,7 @@ export default function App() {
             type="button"
             className="cc-boot__alt"
             onClick={async () => {
+              // ยังไม่รู้ว่าใครล็อกอินอยู่ (bootstrap ล้ม) — ล้างแค่ token ไม่แตะสมุดของใคร
               await api.signOut();
               setBoot({ kind: 'signed-out' });
             }}

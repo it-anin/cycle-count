@@ -55,68 +55,123 @@ export interface UpsertResult {
   written: number;
 }
 
-export async function upsertProducts(rows: ProductImportRow[]): Promise<UpsertResult> {
+/**
+ * เรียกหลังเขียนแต่ละ batch สำเร็จ — ใช้รายงานความคืบหน้าให้หน้าเว็บเห็น
+ * และทำให้ batch ที่ล้มกลางทางบอกได้ว่าเขียนไปถึงไหนแล้ว
+ */
+export type ProgressFn = (written: number) => Promise<void>;
+
+/**
+ * เขียนทีละ batch โดยแต่ละ batch อยู่ใน transaction ของตัวเอง
+ *
+ * **ทำไมไม่ห่อทั้งไฟล์ไว้ใน transaction เดียว**
+ * ไฟล์จริงมีหมื่นแถว = ยี่สิบกว่า batch ใช้เวลาหลายสิบวินาที การถือ transaction
+ * ไว้นานขนาดนั้นบน pgbouncer แบบ transaction pooling จะตรึง connection ทั้งเส้น
+ * และเสี่ยงโดน `idle_in_transaction_session_timeout` ตัดกลางคัน
+ *
+ * batch ละ transaction จึงเป็นจุดสมดุล: ไฟล์ที่ล้มกลางทางจะได้ผลลัพธ์เป็น
+ * "เขียนสำเร็จ N batch แรกครบถ้วน" ไม่ใช่ "batch สุดท้ายเขียนไปครึ่งเดียว"
+ * และ `processed_rows` บอกได้ว่า N คือเท่าไร
+ */
+async function writeInBatches<T>(
+  rows: T[],
+  write: (tx: Parameters<Parameters<typeof db.transaction>[0]>[0], part: T[]) => Promise<void>,
+  onProgress?: ProgressFn,
+): Promise<number> {
+  let written = 0;
+
+  for (const part of chunk(rows)) {
+    await db.transaction(async (tx) => {
+      await write(tx, part);
+    });
+    written += part.length;
+    if (onProgress) await onProgress(written);
+  }
+
+  return written;
+}
+
+export async function upsertProducts(
+  rows: ProductImportRow[],
+  onProgress?: ProgressFn,
+): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => r.sku);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(products)
-      .values(
-        part.map((r) => ({
-          sku: r.sku,
-          name: r.name,
-          baseUom: r.baseUom,
-          category: r.category ?? null,
-          location: r.location ?? null,
-          active: r.active,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: products.sku,
-        set: {
-          name: sql`excluded.name`,
-          baseUom: sql`excluded.base_uom`,
-          category: sql`excluded.category`,
-          location: sql`excluded.location`,
-          active: sql`excluded.active`,
-          updatedAt: new Date(),
-        },
-      });
-  }
+  await writeInBatches(
+    unique,
+    async (tx, part) => {
+      await tx
+        .insert(products)
+        .values(
+          part.map((r) => ({
+            sku: r.sku,
+            name: r.name,
+            baseUom: r.baseUom,
+            category: r.category ?? null,
+            location: r.location ?? null,
+            active: r.active,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: products.sku,
+          set: {
+            name: sql`excluded.name`,
+            baseUom: sql`excluded.base_uom`,
+            category: sql`excluded.category`,
+            location: sql`excluded.location`,
+            active: sql`excluded.active`,
+            updatedAt: new Date(),
+          },
+        });
+    },
+    onProgress,
+  );
 
   return { written: unique.length };
 }
 
-export async function upsertBarcodes(rows: BarcodeImportRow[]): Promise<UpsertResult> {
+export async function upsertBarcodes(
+  rows: BarcodeImportRow[],
+  onProgress?: ProgressFn,
+): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => r.barcode);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(barcodes)
-      .values(part.map((r) => ({ barcode: r.barcode, sku: r.sku, uom: r.uom })))
-      .onConflictDoUpdate({
-        target: barcodes.barcode,
-        set: { sku: sql`excluded.sku`, uom: sql`excluded.uom` },
-      });
-  }
+  await writeInBatches(
+    unique,
+    async (tx, part) => {
+      await tx
+        .insert(barcodes)
+        .values(part.map((r) => ({ barcode: r.barcode, sku: r.sku, uom: r.uom })))
+        .onConflictDoUpdate({
+          target: barcodes.barcode,
+          set: { sku: sql`excluded.sku`, uom: sql`excluded.uom` },
+        });
+    },
+    onProgress,
+  );
 
   return { written: unique.length };
 }
 
-export async function upsertUomConversions(rows: UomImportRow[]): Promise<UpsertResult> {
+export async function upsertUomConversions(
+  rows: UomImportRow[],
+  onProgress?: ProgressFn,
+): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => `${r.sku}|${r.uom}`);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(uomConversions)
-      .values(
-        part.map((r) => ({ sku: r.sku, uom: r.uom, factorToBase: String(r.factorToBase) })),
-      )
-      .onConflictDoUpdate({
-        target: [uomConversions.sku, uomConversions.uom],
-        set: { factorToBase: sql`excluded.factor_to_base` },
-      });
-  }
+  await writeInBatches(
+    unique,
+    async (tx, part) => {
+      await tx
+        .insert(uomConversions)
+        .values(part.map((r) => ({ sku: r.sku, uom: r.uom, factorToBase: String(r.factorToBase) })))
+        .onConflictDoUpdate({
+          target: [uomConversions.sku, uomConversions.uom],
+          set: { factorToBase: sql`excluded.factor_to_base` },
+        });
+    },
+    onProgress,
+  );
 
   return { written: unique.length };
 }
@@ -127,6 +182,7 @@ export async function upsertUomConversions(rows: UomImportRow[]): Promise<Upsert
  */
 export async function upsertPrices(
   rows: PriceImportRow[],
+  onProgress?: ProgressFn,
 ): Promise<UpsertResult & { unknownPriceLists: string[] }> {
   if (rows.length === 0) return { written: 0, unknownPriceLists: [] };
 
@@ -145,24 +201,28 @@ export async function upsertPrices(
     (r) => `${r.priceListName}|${r.sku}|${r.uom}|${(r.effectiveFrom ?? new Date()).toISOString().slice(0, 10)}`,
   );
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(prices)
-      .values(
-        part.map((r) => ({
-          priceListId: idByName.get(r.priceListName)!,
-          sku: r.sku,
-          uom: r.uom,
-          unitPrice: String(r.unitPrice),
-          effectiveFrom: (r.effectiveFrom ?? new Date()).toISOString().slice(0, 10),
-          effectiveTo: r.effectiveTo ? r.effectiveTo.toISOString().slice(0, 10) : null,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [prices.priceListId, prices.sku, prices.uom, prices.effectiveFrom],
-        set: { unitPrice: sql`excluded.unit_price`, effectiveTo: sql`excluded.effective_to` },
-      });
-  }
+  await writeInBatches(
+    unique,
+    async (tx, part) => {
+      await tx
+        .insert(prices)
+        .values(
+          part.map((r) => ({
+            priceListId: idByName.get(r.priceListName)!,
+            sku: r.sku,
+            uom: r.uom,
+            unitPrice: String(r.unitPrice),
+            effectiveFrom: (r.effectiveFrom ?? new Date()).toISOString().slice(0, 10),
+            effectiveTo: r.effectiveTo ? r.effectiveTo.toISOString().slice(0, 10) : null,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [prices.priceListId, prices.sku, prices.uom, prices.effectiveFrom],
+          set: { unitPrice: sql`excluded.unit_price`, effectiveTo: sql`excluded.effective_to` },
+        });
+    },
+    onProgress,
+  );
 
   return { written: unique.length, unknownPriceLists };
 }
@@ -171,25 +231,30 @@ export async function upsertPrices(
 export async function upsertExpectedStock(
   sessionId: string,
   rows: ExpectedImportRow[],
+  onProgress?: ProgressFn,
 ): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => `${r.sku}|${r.uom}`);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(expectedStock)
-      .values(
-        part.map((r) => ({
-          sessionId,
-          sku: r.sku,
-          uom: r.uom,
-          expectedQty: String(r.expectedQty),
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [expectedStock.sessionId, expectedStock.sku, expectedStock.uom],
-        set: { expectedQty: sql`excluded.expected_qty` },
-      });
-  }
+  await writeInBatches(
+    unique,
+    async (tx, part) => {
+      await tx
+        .insert(expectedStock)
+        .values(
+          part.map((r) => ({
+            sessionId,
+            sku: r.sku,
+            uom: r.uom,
+            expectedQty: String(r.expectedQty),
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [expectedStock.sessionId, expectedStock.sku, expectedStock.uom],
+          set: { expectedQty: sql`excluded.expected_qty` },
+        });
+    },
+    onProgress,
+  );
 
   return { written: unique.length };
 }

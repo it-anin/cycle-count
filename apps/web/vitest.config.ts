@@ -9,6 +9,8 @@ export default defineConfig({
   test: {
     environment: 'node',
     include: ['src/**/*.test.ts'],
+    // เทส integration ต้องมี DB จริง แยกไปที่ vitest.integration.config.ts
+    exclude: ['**/node_modules/**', '**/*.integration.test.ts'],
   },
   resolve: {
     /*

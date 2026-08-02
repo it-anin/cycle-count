@@ -24,6 +24,7 @@ import { db } from '@/lib/db';
 import { createAdminClient, IMPORT_BUCKET } from '@/lib/supabase/admin';
 import { requireRole } from '@/server/auth';
 import { badRequest, notFound, withApi } from '@/server/http';
+import { logEvent, logWarn } from '@/server/logging';
 import {
   upsertBarcodes,
   upsertExpectedStock,
@@ -38,6 +39,12 @@ export const preferredRegion = 'sin1';
 export const maxDuration = 300;
 
 const MAX_STORED_ERRORS = 200;
+
+/**
+ * อายุของ lease — เกินนี้ถือว่า lambda ที่จองไว้ตายแล้ว ยึดงานกลับมาได้
+ * ตั้งยาวกว่า maxDuration (300 วิ) เท่าตัว เผื่อ cold start และเวลาที่ platform ใช้ฆ่า process
+ */
+const PROCESSING_LEASE_MS = 600_000;
 
 const body = z.object({ batchId: z.string().uuid() });
 
@@ -55,12 +62,34 @@ export const POST = withApi(async (req) => {
 
   if (!batch) throw notFound('ไม่พบรายการนำเข้านี้');
   if (!batch.storagePath) throw badRequest('รายการนี้ยังไม่มีไฟล์ที่อัปโหลด');
-  if (batch.status === 'processing') throw badRequest('รายการนี้กำลังประมวลผลอยู่');
   if (batch.status === 'completed') throw badRequest('รายการนี้ประมวลผลไปแล้ว');
+
+  /*
+   * สถานะ `processing` ใช้เป็น lock ไม่ได้ถ้าไม่มีอายุกำกับ
+   *
+   * lambda ที่ถูกฆ่า (หมด maxDuration / OOM ตอนอ่าน XLSX ใหญ่) จะไม่ได้วิ่งเข้า catch
+   * แถวจึงค้างที่ `processing` ตลอดกาล อัปโหลดใหม่ก็ไม่ได้ ต้องแก้ DB ด้วยมือ
+   *
+   * lease ต้องยาวกว่า maxDuration พอสมควร ไม่งั้นจะไปยึดงานที่ยังทำอยู่จริงมาทำซ้อน
+   */
+  if (batch.status === 'processing') {
+    const startedAt = batch.processingStartedAt?.getTime() ?? 0;
+    const heldFor = Date.now() - startedAt;
+
+    if (heldFor < PROCESSING_LEASE_MS) {
+      throw badRequest('รายการนี้กำลังประมวลผลอยู่');
+    }
+
+    logWarn('import.lease_expired', {
+      batchId: batch.id,
+      heldForMs: heldFor,
+      processedRows: batch.processedRows,
+    });
+  }
 
   await db
     .update(importBatches)
-    .set({ status: 'processing' })
+    .set({ status: 'processing', processingStartedAt: new Date(), processedRows: 0 })
     .where(eq(importBatches.id, batch.id));
 
   try {
@@ -89,19 +118,30 @@ export const POST = withApi(async (req) => {
     const { valid, errors } = parseRows(kind, normalizeRows(kind, raw));
     const allErrors: ParsedRowError[] = [...errors];
 
+    /*
+     * อัปเดตความคืบหน้าทุก batch — ทำให้ไฟล์ที่ล้มกลางทางบอกได้ว่าเขียนไปกี่แถวแล้ว
+     * ต่างจากเดิมที่ตั้ง status เป็น failed แต่มีข้อมูลค้างใน DB โดยไม่มีใครรู้ว่าเท่าไร
+     */
+    const onProgress = async (written: number) => {
+      await db
+        .update(importBatches)
+        .set({ processedRows: written })
+        .where(eq(importBatches.id, batch.id));
+    };
+
     if (valid.length > 0) {
       switch (kind) {
         case 'products':
-          await upsertProducts(valid as never);
+          await upsertProducts(valid as never, onProgress);
           break;
         case 'barcodes':
-          await upsertBarcodes(valid as never);
+          await upsertBarcodes(valid as never, onProgress);
           break;
         case 'uom':
-          await upsertUomConversions(valid as never);
+          await upsertUomConversions(valid as never, onProgress);
           break;
         case 'prices': {
-          const result = await upsertPrices(valid as never);
+          const result = await upsertPrices(valid as never, onProgress);
           // ชื่อ price list ที่ไม่มีในระบบ = ตั้งใจพิมพ์ผิด ไม่ควรสร้างให้เงียบ ๆ
           for (const name of result.unknownPriceLists) {
             allErrors.push({ row: 0, message: `ไม่พบ price list ชื่อ "${name}" — แถวที่อ้างถูกข้าม` });
@@ -110,7 +150,7 @@ export const POST = withApi(async (req) => {
         }
         case 'expected': {
           if (!batch.sessionId) throw new Error('รายการยอดตั้งต้นนี้ไม่ได้ผูกกับรอบนับ');
-          await upsertExpectedStock(batch.sessionId, valid as never);
+          await upsertExpectedStock(batch.sessionId, valid as never, onProgress);
           break;
         }
       }
@@ -120,11 +160,20 @@ export const POST = withApi(async (req) => {
       .update(importBatches)
       .set({
         status: 'completed',
+        processingStartedAt: null,
+        processedRows: valid.length,
         rowCount: valid.length,
         errorCount: allErrors.length,
         errors: allErrors.slice(0, MAX_STORED_ERRORS),
       })
       .where(eq(importBatches.id, batch.id));
+
+    logEvent('import.completed', {
+      batchId: batch.id,
+      kind,
+      imported: valid.length,
+      errorCount: allErrors.length,
+    });
 
     return NextResponse.json({
       batchId: batch.id,
@@ -135,9 +184,18 @@ export const POST = withApi(async (req) => {
   } catch (err) {
     const message = err instanceof Error ? err.message : 'ประมวลผลไฟล์ไม่สำเร็จ';
 
+    /*
+     * ปล่อย processed_rows ไว้ตามจริง ไม่รีเซ็ต — แอดมินต้องรู้ว่ามีข้อมูลค้างใน DB กี่แถว
+     * ก่อนตัดสินใจว่าจะอัปโหลดซ้ำ (upsert จึงเขียนทับได้ปลอดภัย) หรือย้อนข้อมูลเอง
+     */
     await db
       .update(importBatches)
-      .set({ status: 'failed', errorCount: 1, errors: [{ row: 0, message }] })
+      .set({
+        status: 'failed',
+        processingStartedAt: null,
+        errorCount: 1,
+        errors: [{ row: 0, message }],
+      })
       .where(eq(importBatches.id, batch.id));
 
     throw new Error(message);

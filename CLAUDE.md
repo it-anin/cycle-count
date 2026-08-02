@@ -226,6 +226,35 @@ PDA ตั้ง `Data Output Mode: Broadcast Mode` (ไม่ใช่ keyboard
 
 **ผลคือเทสการสแกนในเบราว์เซอร์ไม่ได้ ต้อง build APK** (เทสเลย์เอาต์/ปุ่มยังได้ ใช้ปุ่ม "คีย์เอง")
 
+### 7.1 แอปจอขาวถาวรถ้าถูก pause ระหว่าง Capacitor bridge init
+
+อาการ: เปิดแอปแล้วได้จอขาวเปล่า กดอะไรไม่ได้ ต้องฆ่าแอปเปิดใหม่ถึงจะหาย
+
+```
+D Capacitor: App started → Loading app at https://localhost
+D Capacitor: App paused → App stopped              ← จอดับ / สลับแอป ตรงนี้
+D Capacitor: Handling local request: /assets/index-*.js
+E Capacitor/Console: Uncaught TypeError: Cannot read properties of undefined (reading 'triggerEvent')
+```
+
+native ยิง lifecycle event เข้า WebView ตอนที่ `window.Capacitor` ยังไม่ถูกฉีดเข้าไป
+JS ตายตั้งแต่บรรทัดแรก React จึงไม่ mount
+
+**เกิดง่ายมากตอนเทส** เพราะ timeout จอของเครื่องคือ 60 วินาที — เปิดแอปแล้วปล่อยจอดับ = เจอทุกครั้ง
+ตอนทดสอบให้เสียบสายชาร์จหรือตั้ง `settings put system screen_off_timeout 900000` ไว้ก่อน
+
+**ยังไม่ได้แก้** — ควร guard ก่อนเรียก `triggerEvent` และเพิ่ม error boundary ที่ `main.tsx`
+ให้จอขาวกลายเป็นข้อความที่กด "ลองใหม่" ได้
+
+### 7.2 WebView ของเครื่อง PDA ค้างที่ Chrome 113 อัปเดตไม่ได้
+
+`com.android.webview 113.0.5672.136` (ปี 2023) บน Android 14 — vendor แช่ไว้
+`com.google.android.webview` **ไม่ได้ติดตั้ง** จึงอัปเดตผ่าน Play ไม่ได้
+
+`vite.config.ts` ยังไม่ได้ตั้ง `build.target` จึงพึ่งค่าเริ่มต้นของ Vite ซึ่งเปลี่ยนได้ตามเวอร์ชัน
+(Vite 6 = `baseline-widely-available` ≈ Chrome 107 ซึ่งยังผ่าน แต่ Vite 7 เปลี่ยนอีก)
+**ควรตั้งให้ชัดว่าเพดานคือ Chrome 113** ไม่ใช่ปล่อยตามค่าเริ่มต้น
+
 ### 8. `authEmailForEmployee()` ต้องเป็นตัวเดียวกันทั้งสองฝั่ง
 
 `EMP-2041` → `emp2041@pda.anin.co.th` หน้าล็อกอินและสคริปต์สร้างผู้ใช้เรียกฟังก์ชันเดียวกัน
@@ -296,7 +325,52 @@ PDA ตั้ง `Data Output Mode: Broadcast Mode` (ไม่ใช่ keyboard
   อัปโหลด Excel, รายงานผลต่าง (ตีมูลค่าด้วย `resolvePrice()`)
 - **หน้าเลือกรอบนับบน PDA** — ตอนนี้ยิง `/api/pda/session` แล้วได้รอบ active มาเลย
 - **ผูกรอบทวนกับรอบแรก** (`parentSessionId`) เพื่อให้รอบทวนแสดงว่ารอบแรกนับได้เท่าไร
-- **PDA เรียก API ใน LAN ไม่ได้** ขึ้น "failed to fetch" — ตัด CORS / firewall / IP / binding
-  ออกไปแล้ว เหลือข้อสงสัยว่าคอมต่อ Ethernet ส่วน PDA ต่อ Wi-Fi อาจคนละ subnet หรือ AP isolation
-  ทดสอบชี้ขาดด้วยการเปิด `http://<ip>:3000/api/health` ใน Chrome บนเครื่อง PDA
-  ทางเลี่ยง: `adb reverse tcp:3000 tcp:3000` แล้วตั้ง `VITE_API_BASE_URL="http://localhost:3000"`
+- **แก้บั๊ก "แอปจอขาว"** (ข้อ 7.1) และ **ตั้ง `build.target`** ให้ไม่เกิน Chrome 113 (ข้อ 7.2)
+
+---
+
+## วิธีเทสบนเครื่อง PDA จริง
+
+**"failed to fetch" ที่เคยหาสาเหตุไม่เจอ — เจอแล้ว ไม่ใช่ subnet หรือ AP isolation**
+เป็น **IP ค้างอยู่สองที่** ขณะที่ IP จริงของเครื่อง dev เปลี่ยนไป (DHCP):
+
+| ที่ | ค่าที่ต้องตรงกับเครื่อง dev |
+|---|---|
+| `.env` → `VITE_API_BASE_URL` | ฝังตอน build — แก้แล้วต้อง build APK ใหม่ |
+| `android/app/src/debug/res/xml/network_security_config.xml` | ถ้า IP ไม่อยู่ในนี้ Android บล็อก cleartext ทั้งที่ URL ถูก |
+
+Windows Firewall ไม่เกี่ยว (ตรวจแล้ว profile ปิดอยู่ + มี inbound allow ของ node.exe)
+
+**ทางที่ควรใช้เป็นหลัก — `adb reverse` ตัดปัญหา IP/Wi-Fi/firewall ออกทั้งหมด**
+
+```bash
+# ตั้ง VITE_API_BASE_URL="http://localhost:3000" ใน .env (localhost อยู่ใน network_security_config แล้ว)
+adb reverse tcp:3000 tcp:3000        # ต้องตั้งใหม่ทุกครั้งที่ต่อ adb ใหม่ / เครื่องรีบูต
+pnpm --filter @cycle-count/web dev
+pnpm --filter @cycle-count/pda android:apk
+adb install -r apps/pda/android/app/build/outputs/apk/debug/app-debug.apk
+```
+
+**เชื่อมแบบไร้สาย (ไม่ต้องเสียบ USB)** — Android 11+:
+Settings → Developer options → Wireless debugging → "Pair device with pairing code"
+
+```bash
+adb pair <ip>:<pairing-port> <รหัส 6 หลัก>
+adb mdns services                    # หา port สำหรับ connect
+adb connect <ip>:<port>
+```
+
+**กับดักที่เจอมาแล้ว**
+
+- **APK เซ็นคนละคีย์** — debug keystore เป็นของแต่ละเครื่อง build ถ้าเครื่อง PDA เคยลง APK
+  จากอีกเครื่อง จะขึ้น `INSTALL_FAILED_UPDATE_INCOMPATIBLE` ต้อง `adb uninstall` ก่อน (**ลบข้อมูลในแอป**)
+- **แอปติด "Waiting For Debugger"** ถ้าเคยตั้ง debug app ค้างไว้ →
+  `adb shell am clear-debug-app; adb shell settings put global wait_for_debugger 0`
+- **จอดับระหว่างเปิดแอป = จอขาว** (ข้อ 7.1) → เสียบสายชาร์จ หรือ
+  `adb shell settings put system screen_off_timeout 900000`
+  (`svc power stayon true` ใช้ไม่ได้ถ้าเครื่องไม่ได้เสียบไฟ)
+- **`adb exec-out screencap -p > x.png` ใน PowerShell ได้ไฟล์เสีย** (โดน BOM) →
+  ใช้ `adb shell screencap -p /sdcard/x.png` แล้ว `adb pull`
+- **ดู error ของ WebView** — `adb logcat | grep "Capacitor/Console"` เห็น JS error ตรง ๆ
+  ส่วน Chrome DevTools (`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`)
+  ใช้ได้แต่จะ timeout ถ้า renderer ค้างอยู่แล้ว

@@ -196,47 +196,70 @@ export async function snapshotExpected(
   const snapshotAt = new Date();
 
   /*
-   * รวมยอดด้วย SUM เผื่อสาขาเดียวกันมีหลายแถวต่อ sku+unit
-   * (สคริปต์ sync อาจ append ไม่ได้ replace) — ถ้าไม่รวมจะชน PK ของ expected_stock
+   * ทั้งสามสเต็ปอยู่ใน transaction เดียว และเริ่มด้วย DELETE เสมอ
+   *
+   * **ทำไมต้อง DELETE ก่อน ไม่ใช่ upsert ทับ**
+   * ความหมายของการถ่าย snapshot คือ "แทนที่ยอดตั้งต้นทั้งชุด" ไม่ใช่ "รวมเข้ากับของเดิม"
+   * ถ้าใช้ upsert อย่างเดียว:
+   *   - เปิดรอบผิดสาขาแล้ว prepare ใหม่ด้วยสาขาที่ถูก → SKU ที่มีเฉพาะสาขาแรก **ค้างอยู่**
+   *     ยอดตั้งต้นกลายเป็น A ∪ B ผลต่างทั้งรอบผิดโดยไม่มีสัญญาณเตือนเลย
+   *   - สาขาเดิมก็ยังพลาด: SKU ที่เคยมีของแต่ตอนนี้หายจาก public.stock จะค้างยอดเก่าไว้
+   *
+   * **ทำไมต้องอยู่ใน transaction**
+   * ถ้า DELETE ผ่านแล้ว INSERT ล้ม จะเหลือรอบที่ไม่มียอดตั้งต้นเลย ซึ่งแย่กว่าเดิม
+   * และ UPDATE snapshot_at ต้องลงพร้อมข้อมูล ไม่งั้นได้รอบที่มียอดแต่ไม่มี cut-off
+   * = ผู้ตรวจสอบบัญชีอ้างอิงไม่ได้
+   *
+   * สามสเต็ปนี้สั้นพอจะอยู่ใน transaction ของ pgbouncer แบบ transaction pooling ได้
+   * (ต่างจาก syncCatalog ที่มี 7 statement ใช้เวลาหลายสิบวินาที — ตั้งใจไม่ห่อ)
    */
-  const inserted = await db.execute(sql`
-    INSERT INTO cycle_count.expected_stock (session_id, sku, uom, expected_qty)
-    SELECT
-      ${sessionId}::uuid,
-      btrim(s.sku),
-      COALESCE(NULLIF(btrim(s.unit), ''), cp.base_uom),
-      SUM(${numericOrZero('s.qty')})
-    FROM public.stock s
-    JOIN cycle_count.products cp ON cp.sku = btrim(s.sku)
-    WHERE s.branch = ${branch}
-      AND ${CLEAN_ROWS}
-    GROUP BY btrim(s.sku), COALESCE(NULLIF(btrim(s.unit), ''), cp.base_uom)
-    ON CONFLICT (session_id, sku, uom) DO UPDATE SET expected_qty = excluded.expected_qty
-  `);
+  return db.transaction(async (tx) => {
+    await tx.execute(sql`
+      DELETE FROM cycle_count.expected_stock WHERE session_id = ${sessionId}::uuid
+    `);
 
-  // SKU ที่มีของแต่ไม่รู้จัก — ไม่ควรเงียบ เพราะแปลว่า master ไม่ครบ
-  const unknown = await db.execute(sql`
-    SELECT count(DISTINCT btrim(s.sku))::int AS n
-    FROM public.stock s
-    LEFT JOIN cycle_count.products cp ON cp.sku = btrim(s.sku)
-    WHERE s.branch = ${branch}
-      AND ${CLEAN_ROWS}
-      AND cp.sku IS NULL
-  `);
+    /*
+     * รวมยอดด้วย SUM เผื่อสาขาเดียวกันมีหลายแถวต่อ sku+unit
+     * (สคริปต์ sync อาจ append ไม่ได้ replace) — ถ้าไม่รวมจะชน PK ของ expected_stock
+     */
+    const inserted = await tx.execute(sql`
+      INSERT INTO cycle_count.expected_stock (session_id, sku, uom, expected_qty)
+      SELECT
+        ${sessionId}::uuid,
+        btrim(s.sku),
+        COALESCE(NULLIF(btrim(s.unit), ''), cp.base_uom),
+        SUM(${numericOrZero('s.qty')})
+      FROM public.stock s
+      JOIN cycle_count.products cp ON cp.sku = btrim(s.sku)
+      WHERE s.branch = ${branch}
+        AND ${CLEAN_ROWS}
+      GROUP BY btrim(s.sku), COALESCE(NULLIF(btrim(s.unit), ''), cp.base_uom)
+    `);
 
-  await db.execute(sql`
-    UPDATE cycle_count.count_sessions
-    SET snapshot_at = ${snapshotAt.toISOString()}::timestamptz,
-        expected_source = 'public.stock',
-        source_branch = ${branch}
-    WHERE id = ${sessionId}::uuid
-  `);
+    // SKU ที่มีของแต่ไม่รู้จัก — ไม่ควรเงียบ เพราะแปลว่า master ไม่ครบ
+    const unknown = await tx.execute(sql`
+      SELECT count(DISTINCT btrim(s.sku))::int AS n
+      FROM public.stock s
+      LEFT JOIN cycle_count.products cp ON cp.sku = btrim(s.sku)
+      WHERE s.branch = ${branch}
+        AND ${CLEAN_ROWS}
+        AND cp.sku IS NULL
+    `);
 
-  return {
-    rows: rowCount(inserted),
-    snapshotAt,
-    skippedUnknownSkus: Number((unknown as unknown as { n: number }[])[0]?.n ?? 0),
-  };
+    await tx.execute(sql`
+      UPDATE cycle_count.count_sessions
+      SET snapshot_at = ${snapshotAt.toISOString()}::timestamptz,
+          expected_source = 'public.stock',
+          source_branch = ${branch}
+      WHERE id = ${sessionId}::uuid
+    `);
+
+    return {
+      rows: rowCount(inserted),
+      snapshotAt,
+      skippedUnknownSkus: Number((unknown as unknown as { n: number }[])[0]?.n ?? 0),
+    };
+  });
 }
 
 /** รายชื่อสาขาที่มีในระบบสต็อก ให้แอดมินเลือกตอนเปิดรอบ */
