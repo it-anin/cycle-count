@@ -124,7 +124,7 @@ android/app/src/
 
 ```bash
 pnpm dev                  # web + pda
-pnpm build / typecheck / test
+pnpm build / typecheck / lint / test
 
 pnpm db:generate          # สร้าง migration จาก schema.ts
 pnpm db:migrate           # รันขึ้น DB จริง
@@ -133,7 +133,17 @@ pnpm db:seed
 pnpm --filter @cycle-count/db upload:barcode-units R05106.CSV
 pnpm --filter @cycle-count/db create:user
 pnpm --filter @cycle-count/pda android:apk      # → android/app/build/outputs/apk/debug/
+
+# เทสที่ยิงใส่ Postgres จริง — ไม่รวมใน `pnpm test` และไม่รันใน CI
+pnpm --filter @cycle-count/web test:integration
 ```
+
+**`pnpm test` ไม่แตะ DB** ทั้งหมดเป็น unit test + contract test ที่ mock `@/lib/db`
+ส่วน `*.integration.test.ts` ยิงใส่ DB จริงเพราะต้องเห็นพฤติกรรมของ `public.stock`
+ที่เราไม่ได้เป็นเจ้าของ — กติกาที่ทำให้ปลอดภัยพออยู่ใน `apps/web/src/test/integration.ts`
+
+**`contract.test.ts` ของ `/api/pda/*` คือสัญญากับ APK ที่อยู่บนเครื่อง** ถ้าเทสชุดนั้นแดง
+ให้ถามก่อนว่า "APK บนเครื่องรับการเปลี่ยนแปลงนี้ได้ไหม" ไม่ใช่แก้เทสให้ผ่าน
 
 `.env` อยู่ที่ **root ของ monorepo** ไม่ใช่ในแต่ละ app —
 `next.config.mjs`, `vite.config.ts` และ `drizzle.config.ts` ต่างโหลดเองเพราะ
@@ -332,52 +342,122 @@ JS ตายตั้งแต่บรรทัดแรก React จึงไ�
   อัปโหลด Excel, รายงานผลต่าง (ตีมูลค่าด้วย `resolvePrice()`)
 - **หน้าเลือกรอบนับบน PDA** — ตอนนี้ยิง `/api/pda/session` แล้วได้รอบ active มาเลย
 - **ผูกรอบทวนกับรอบแรก** (`parentSessionId`) เพื่อให้รอบทวนแสดงว่ารอบแรกนับได้เท่าไร
-- **แก้บั๊ก "แอปจอขาว"** (ข้อ 7.1) และ **ตั้ง `build.target`** ให้ไม่เกิน Chrome 113 (ข้อ 7.2)
+- **ตั้ง `build.target` ใน `vite.config.ts`** ให้ไม่เกิน Chrome 113 (ข้อ 7.2) — ตอนนี้พึ่งค่าเริ่มต้น
+  ของ Vite ซึ่งเปลี่ยนได้เองเวลาอัปเวอร์ชัน
+- **ยืนยันบั๊กจอขาว (ข้อ 7.1) บนเครื่องจริง** — แก้และเทสในโค้ดแล้ว แต่ยังไม่ได้ทดสอบซ้ำบนเครื่อง
+- **offline queue ฝั่ง PDA** — ตอนนี้ส่งไม่สำเร็จแล้วต้องกดส่งใหม่เอง ไม่มี retry อัตโนมัติ
+  และ `submit()` ไม่มี timeout จึงค้างที่ "กำลังส่ง…" ได้ตลอดกาลบนเน็ตที่ half-open
 
 ---
 
 ## วิธีเทสบนเครื่อง PDA จริง
 
-**"failed to fetch" ที่เคยหาสาเหตุไม่เจอ — เจอแล้ว ไม่ใช่ subnet หรือ AP isolation**
-เป็น **IP ค้างอยู่สองที่** ขณะที่ IP จริงของเครื่อง dev เปลี่ยนไป (DHCP):
+เครื่องที่ใช้อยู่: **iT68** · Android 14 (SDK 34) · จอ 480×800 · WebView 113 (ดูข้อ 7.2)
 
-| ที่ | ค่าที่ต้องตรงกับเครื่อง dev |
+### 0. ต้องมีอะไรบนเครื่อง dev ก่อน
+
+`pnpm android:apk` ต้องการ JDK 17+ กับ Android SDK ซึ่งไม่ได้มากับ Node
+ลงผ่าน scoop ได้โดย**ไม่ต้องใช้สิทธิ์ admin** และไม่ไปยุ่งกับ Java เดิมของเครื่อง
+
+```powershell
+scoop bucket add java; scoop bucket add extras
+scoop install temurin21-jdk android-clt      # JDK 21 + cmdline-tools + platform-tools
+
+# ยอมรับ license แล้วลง platform ตาม compileSdk
+sdkmanager --licenses                         # ถ้าค้าง ให้เขียนไฟล์ hash ลง $ANDROID_HOME\licenses\ เอง
+sdkmanager "platform-tools" "platforms;android-34" "build-tools;34.0.0"
+```
+
+ตั้งถาวรระดับ user: `JAVA_HOME`, `ANDROID_HOME`, `ANDROID_SDK_ROOT`
+และเพิ่ม `%JAVA_HOME%\bin`, `%ANDROID_HOME%\platform-tools` เข้า PATH
+
+Gradle wrapper ในโปรเจกต์เป็น 8.7 อยู่แล้ว (ดูข้อ 10) ไม่ต้องลง Gradle แยก
+
+### 1. เชื่อมเครื่อง
+
+**ไร้สาย (Android 11+ ไม่ต้องเสียบ USB)** — Settings → Developer options → Wireless debugging
+→ "Pair device with pairing code" จะได้ IP:port กับรหัส 6 หลัก
+
+```bash
+adb pair <ip>:<pairing-port> <รหัส 6 หลัก>
+adb mdns services                    # หา port สำหรับ connect (คนละ port กับ pairing)
+adb connect <ip>:<port>
+```
+
+จับคู่ครั้งเดียวจำได้ตลอด แต่ **หลุดทุกครั้งที่เครื่องหลับ** — ต่อใหม่ด้วย `adb connect` เฉย ๆ
+
+### 2. build + ติดตั้ง
+
+```bash
+# .env ที่ root ต้องมี VITE_API_BASE_URL="http://localhost:3000"
+adb reverse tcp:3000 tcp:3000        # ตั้งใหม่ทุกครั้งที่ต่อ adb ใหม่ / เครื่องรีบูต
+pnpm --filter @cycle-count/web dev
+pnpm --filter @cycle-count/pda android:apk
+adb install -r apps/pda/android/app/build/outputs/apk/debug/app-debug.apk
+adb shell am start -n co.anin.cyclecount/.MainActivity
+```
+
+**ทำไมต้อง `adb reverse` ไม่ใช่ IP ใน LAN** — เครื่อง PDA จะมองเห็นพอร์ต 3000 ของคอม
+ผ่านสาย adb โดยไม่ผ่าน Wi-Fi เลย ตัดปัญหา IP เปลี่ยน / subnet / firewall ออกทั้งหมด
+และ `localhost` อยู่ใน `network_security_config.xml` อยู่แล้วจึงไม่ต้องแก้อะไร
+
+**ถ้าจะใช้ IP ใน LAN จริง ๆ ต้องแก้สองที่ให้ตรงกัน** — นี่คือสาเหตุของ "failed to fetch"
+ที่เคยหาไม่เจอ (ไม่ใช่ subnet หรือ AP isolation อย่างที่เดา แต่เป็น IP ค้างจาก DHCP):
+
+| ที่ | หมายเหตุ |
 |---|---|
 | `.env` → `VITE_API_BASE_URL` | ฝังตอน build — แก้แล้วต้อง build APK ใหม่ |
 | `android/app/src/debug/res/xml/network_security_config.xml` | ถ้า IP ไม่อยู่ในนี้ Android บล็อก cleartext ทั้งที่ URL ถูก |
 
-Windows Firewall ไม่เกี่ยว (ตรวจแล้ว profile ปิดอยู่ + มี inbound allow ของ node.exe)
+Windows Firewall ไม่เกี่ยว (ตรวจแล้ว — profile ปิดอยู่ และมี inbound allow ของ node.exe)
 
-**ทางที่ควรใช้เป็นหลัก — `adb reverse` ตัดปัญหา IP/Wi-Fi/firewall ออกทั้งหมด**
-
-```bash
-# ตั้ง VITE_API_BASE_URL="http://localhost:3000" ใน .env (localhost อยู่ใน network_security_config แล้ว)
-adb reverse tcp:3000 tcp:3000        # ต้องตั้งใหม่ทุกครั้งที่ต่อ adb ใหม่ / เครื่องรีบูต
-pnpm --filter @cycle-count/web dev
-pnpm --filter @cycle-count/pda android:apk
-adb install -r apps/pda/android/app/build/outputs/apk/debug/app-debug.apk
-```
-
-**เชื่อมแบบไร้สาย (ไม่ต้องเสียบ USB)** — Android 11+:
-Settings → Developer options → Wireless debugging → "Pair device with pairing code"
+### 3. ดูว่าเกิดอะไรขึ้นบนเครื่อง
 
 ```bash
-adb pair <ip>:<pairing-port> <รหัส 6 หลัก>
-adb mdns services                    # หา port สำหรับ connect
-adb connect <ip>:<port>
+adb logcat -c && adb logcat | grep -E "Capacitor|Capacitor/Console"   # JS error เห็นตรงนี้
+adb shell screencap -p /sdcard/x.png && adb pull /sdcard/x.png        # ถ่ายจอ
+adb shell "dumpsys power | grep mWakefulness="                        # เครื่องหลับอยู่ไหม
+adb shell "dumpsys window | grep mCurrentFocus"                       # แอปไหนอยู่หน้าสุด
 ```
 
-**กับดักที่เจอมาแล้ว**
+ฝั่ง server ดู log ที่ `withApi()` ออกให้ — หนึ่งบรรทัด JSON ต่อคำขอ มี `userId` กับ
+`x-request-id` ติดมาด้วย จึงบอกได้ว่าเครื่องยิงอะไรเข้ามาและใครเป็นคนยิง
+
+### 4. บัญชีทดสอบ
+
+| รหัส | PIN | บทบาท |
+|---|---|---|
+| `EMP-901` | `901901` | counter — "ทดสอบ ก" |
+| `EMP-902` | `902902` | counter — "ทดสอบ ข" |
+
+สร้างเพิ่มด้วย `pnpm --filter @cycle-count/db create:user --code X --name Y --pin Z --role counter`
+(รันซ้ำรหัสเดิม = เปลี่ยน PIN) PIN ต้องยาว ≥ 6 ตัวตามข้อกำหนดของ Supabase Auth
+
+### 5. เทสที่ต้องเดินบนเครื่อง (เบราว์เซอร์แทนไม่ได้)
+
+- **สแกนบาร์โค้ด** — Broadcast Mode รับผ่าน Android Intent (ข้อ 7) เบราว์เซอร์ไม่มีทางจำลอง
+- **สมุดนับต้องไม่ปนข้ามผู้ใช้** — เครื่องคลังใช้ร่วมกันหลายคนต่อกะ เดินสองรอบ:
+  1. ก ล็อกอิน → นับ → **กดส่ง** → ล็อกเอาต์ → ข ล็อกอิน → สมุดต้องว่าง
+  2. ก ล็อกอิน → นับ → **ไม่กดส่ง** → ล็อกเอาต์ → ข ล็อกอิน → สมุดต้องว่าง
+     แล้ว ก ล็อกอินกลับมา → **ของต้องอยู่ครบ** (ล็อกเอาต์ไม่ล้างสมุด ดู `lib/ledgerStorage.ts`)
+- **แอปไม่จอขาวเมื่อถูก pause กลาง init** (ข้อ 7.1) — เปิดแอปแล้วกดปุ่ม power ภายใน 2 วินาที
+  เปิดจอกลับมาต้องเห็นหน้าล็อกอิน ไม่ใช่จอขาว
+- **โหมด blind ต้องไม่โชว์ยอดระบบ** — คอลัมน์ผลต่างต้องหายทั้งคอลัมน์ ไม่ใช่โชว์ `—`
+
+### 6. กับดักที่เจอมาแล้ว
 
 - **APK เซ็นคนละคีย์** — debug keystore เป็นของแต่ละเครื่อง build ถ้าเครื่อง PDA เคยลง APK
-  จากอีกเครื่อง จะขึ้น `INSTALL_FAILED_UPDATE_INCOMPATIBLE` ต้อง `adb uninstall` ก่อน (**ลบข้อมูลในแอป**)
+  จากอีกเครื่อง จะขึ้น `INSTALL_FAILED_UPDATE_INCOMPATIBLE` ต้อง `adb uninstall` ก่อน
+  ซึ่ง **ลบข้อมูลในแอปทั้งหมด** รวมสมุดที่ยังไม่ได้ส่ง — ถามเจ้าของเครื่องก่อน
 - **แอปติด "Waiting For Debugger"** ถ้าเคยตั้ง debug app ค้างไว้ →
   `adb shell am clear-debug-app; adb shell settings put global wait_for_debugger 0`
-- **จอดับระหว่างเปิดแอป = จอขาว** (ข้อ 7.1) → เสียบสายชาร์จ หรือ
-  `adb shell settings put system screen_off_timeout 900000`
+- **จอดับระหว่างเปิดแอป = จอขาว** (ข้อ 7.1 — แก้แล้วแต่ยังควรกันไว้ตอนเทส) →
+  เสียบสายชาร์จ หรือ `adb shell settings put system screen_off_timeout 900000`
   (`svc power stayon true` ใช้ไม่ได้ถ้าเครื่องไม่ได้เสียบไฟ)
 - **`adb exec-out screencap -p > x.png` ใน PowerShell ได้ไฟล์เสีย** (โดน BOM) →
   ใช้ `adb shell screencap -p /sdcard/x.png` แล้ว `adb pull`
-- **ดู error ของ WebView** — `adb logcat | grep "Capacitor/Console"` เห็น JS error ตรง ๆ
-  ส่วน Chrome DevTools (`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`)
-  ใช้ได้แต่จะ timeout ถ้า renderer ค้างอยู่แล้ว
+- **Chrome DevTools ของ WebView** (`adb forward tcp:9222 localabstract:webview_devtools_remote_<pid>`)
+  ใช้ได้ แต่ถ้า renderer ค้างอยู่แล้ว `Runtime.evaluate` จะ timeout ทุกคำสั่ง
+  — อาการนั้นแปลว่า renderer ตาย ไม่ใช่ JS error ให้ดู logcat แทน
+- **`process is bad` ใน logcat** = ActivityManager ขึ้นบัญชีดำ process ไว้จากการ crash ซ้ำ ๆ
+  `pm clear` ไม่พอ ต้อง **reboot เครื่อง** (`adb reboot` — wireless debugging รอดหลังรีบูต)
