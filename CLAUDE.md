@@ -241,10 +241,17 @@ native ยิง lifecycle event เข้า WebView ตอนที่ `window
 JS ตายตั้งแต่บรรทัดแรก React จึงไม่ mount
 
 **เกิดง่ายมากตอนเทส** เพราะ timeout จอของเครื่องคือ 60 วินาที — เปิดแอปแล้วปล่อยจอดับ = เจอทุกครั้ง
-ตอนทดสอบให้เสียบสายชาร์จหรือตั้ง `settings put system screen_off_timeout 900000` ไว้ก่อน
 
-**ยังไม่ได้แก้** — ควร guard ก่อนเรียก `triggerEvent` และเพิ่ม error boundary ที่ `main.tsx`
-ให้จอขาวกลายเป็นข้อความที่กด "ลองใหม่" ได้
+**แก้แล้วสองชั้น**
+
+1. `index.html` วาง stub ของ `window.Capacitor.triggerEvent` ไว้เป็น **script แรกสุด**
+   ปลอดภัยเพราะทั้ง `@capacitor/core` และ `native-bridge.js` เริ่มด้วย
+   `const cap = win.Capacitor || {}` คือ **ต่อยอด** ของเดิม ไม่ได้เช็คแล้วข้าม
+   ของจริงจึงมาเขียนทับ stub ตอน bridge พร้อม
+   → ตรวจซ้ำทุกครั้งที่อัป Capacitor major ว่ายังเป็นแบบนี้อยู่ (`src/lib/capacitorGuard.test.ts`)
+2. `src/lib/crashScreen.ts` ดัก `error` / `unhandledrejection` และเช็คว่า `#root`
+   ยังว่างหลัง 10 วินาทีไหม แล้วเปลี่ยนจอขาวเป็นข้อความที่กด "เปิดใหม่" ได้
+   เขียนด้วย DOM API ล้วนไม่พึ่ง React เพราะ error พวกนี้เกิดก่อน React mount
 
 ### 7.2 WebView ของเครื่อง PDA ค้างที่ Chrome 113 อัปเดตไม่ได้
 

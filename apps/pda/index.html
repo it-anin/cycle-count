@@ -7,6 +7,30 @@
     <meta name="color-scheme" content="light" />
     <meta name="theme-color" content="#101c28" />
     <title>Cycle Count — PDA</title>
+
+    <!--
+      กัน native ยิง lifecycle event เข้ามาก่อนที่ bridge ของ Capacitor จะพร้อม
+
+      ถ้าแอปถูก pause ระหว่างที่หน้ายังโหลดไม่เสร็จ (จอดับ / มีสายเข้า / สลับแอป)
+      ฝั่ง Android จะเรียก evaluateJavascript("window.Capacitor.triggerEvent('pause', ...)")
+      ตอนที่ window.Capacitor ยังไม่ถูกฉีดเข้ามา → Uncaught TypeError แล้วแอปค้างจอขาวถาวร
+
+      วาง stub ไว้เป็น script แรกสุดจึงรับสายนั้นได้แบบไม่พัง
+      ปลอดภัยเพราะทั้ง @capacitor/core และ native-bridge.js เริ่มด้วย
+      `const cap = win.Capacitor || {}` คือ **ต่อยอด** ของเดิม ไม่ได้เช็คแล้วข้าม
+      ของจริงจึงมาเขียนทับ triggerEvent ตัวนี้ตอน bridge พร้อม
+    -->
+    <script>
+      window.Capacitor = window.Capacitor || {};
+      if (typeof window.Capacitor.triggerEvent !== 'function') {
+        window.Capacitor.__earlyEvents = [];
+        window.Capacitor.triggerEvent = function (eventName, target, eventData) {
+          // เก็บไว้ให้ debug ได้ว่าโดนยิงอะไรมาก่อน bridge พร้อม แล้วตอบแบบเดียวกับของจริง
+          window.Capacitor.__earlyEvents.push({ eventName: eventName, target: target, eventData: eventData });
+          return false;
+        };
+      }
+    </script>
   </head>
   <body>
     <div id="root"></div>
