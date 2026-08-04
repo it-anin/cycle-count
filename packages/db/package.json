@@ -18,6 +18,7 @@
     "upload:barcode-units": "tsx src/uploadBarcodeUnits.ts",
     "create:user": "tsx src/createUser.ts",
     "user:active": "tsx src/setUserActive.ts",
+    "session": "tsx src/session.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
