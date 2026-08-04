@@ -16,6 +16,15 @@ try {
 const nextConfig = {
   // ให้ Next transpile โค้ดจาก workspace packages (ไม่ได้ pre-build)
   transpilePackages: ['@cycle-count/core', '@cycle-count/db'],
+
+  /*
+   * ตอน dev เครื่อง PDA กับเบราว์เซอร์ในวงเรียกเข้ามาด้วย IP ไม่ใช่ localhost
+   * Next 15 เตือนว่าเวอร์ชันหน้าจะบล็อกการโหลด /_next/* ข้าม origin ถ้าไม่ประกาศไว้
+   * ถ้าโดนบล็อกจริงคือ JS ฝั่ง client โหลดไม่ได้ = หน้าเว็บกดอะไรไม่ได้ทั้งหน้า
+   * มีผลเฉพาะโหมด dev — production เสิร์ฟจาก origin เดียวกันอยู่แล้ว
+   */
+  allowedDevOrigins: ['192.168.1.147'],
+
   experimental: {
     // อนุญาต import จากนอก dir ของ app (monorepo)
     externalDir: true,
