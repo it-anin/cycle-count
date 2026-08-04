@@ -367,3 +367,52 @@ export function toCountLines(rows: LedgerRow[]): CountLinePayload[] {
     })),
   );
 }
+
+/* -------------------------------------------------------------------------- */
+/*                     ผลต่างที่ server เฉลยกลับมาหลังกดส่ง                     */
+/* -------------------------------------------------------------------------- */
+
+/**
+ * รายการหนึ่งตัวในใบเฉลย
+ *
+ * ตัวเลขทั้งหมดอยู่ในหน่วยฐาน เพราะยิงคนละหน่วยกับที่ระบบเก็บไว้ได้
+ * (ระบบเก็บเป็นกล่อง คนนับยิงแผง) เทียบตรงหน่วยจึงใช้ไม่ได้
+ */
+export interface SubmitVarianceItem {
+  /** null = ยิงแล้วไม่พบใน master */
+  sku: string | null;
+  name: string;
+  baseUom: string;
+  countedBaseQty: number;
+  /** null = รอบนี้ไม่มียอดตั้งต้นของ SKU นี้ ตัดสินผลต่างไม่ได้ */
+  expectedBaseQty: number | null;
+  /** null เมื่อ expectedBaseQty เป็น null — บวก = เกิน, ลบ = ขาด */
+  diff: number | null;
+}
+
+/**
+ * ใบเฉลยหลังกดส่ง — คำนวณที่ server เท่านั้น
+ *
+ * ทำไมต้องรอหลังส่ง: รอบ blind ห้ามให้คนนับเห็นยอดระบบ **ก่อน** นับ
+ * ไม่งั้นทางที่ง่ายที่สุดคือกดตามยอดโดยไม่นับจริง เฉลยหลังจากที่ตัวเลข
+ * ถูกบันทึกลง server ไปแล้วจึงยังกันเรื่องนั้นได้ แต่คนนับได้รู้ทันทีว่า
+ * ต้องเดินกลับไปนับซ้ำตัวไหน ไม่ต้องรอแอดมินบอกวันรุ่งขึ้น
+ */
+export interface SubmitVariance {
+  matched: number;
+  short: number;
+  over: number;
+  /** ยิงแล้วไม่พบใน master */
+  unknown: number;
+  /** พบ SKU แต่รอบนี้ไม่มียอดตั้งต้น */
+  withoutExpected: number;
+  /** เฉพาะตัวที่ต้องไปดูต่อ — ตัวที่ตรงไม่ต้องแสดงรายตัว */
+  items: SubmitVarianceItem[];
+}
+
+/** จัดหมวดผลต่างของหนึ่งรายการในใบเฉลย */
+export function varianceItemKind(item: SubmitVarianceItem): VarianceKind {
+  if (item.sku === null || item.diff === null) return 'unknown';
+  if (item.diff === 0) return 'match';
+  return item.diff < 0 ? 'short' : 'over';
+}

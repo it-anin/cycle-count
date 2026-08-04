@@ -1,13 +1,14 @@
 /**
  * สถานะสมุดบัญชีของหน้าจอนับสต็อก
  *
- * เก็บลง localStorage ทุกครั้งที่เปลี่ยน — PDA ในคลังโดน WebView รีโหลด
- * หรือแบตหมดกลางรอบได้เสมอ ของที่นับไปแล้วต้องไม่หาย
+ * เก็บลง localStorage แบบหน่วงเวลา แล้ว flush ทันทีเมื่อแอปกำลังจะหายไปจากหน้าจอ —
+ * PDA ในคลังโดน WebView รีโหลดหรือแบตหมดกลางรอบได้เสมอ ของที่นับไปแล้วต้องไม่หาย
+ * (ดู SAVE_DEBOUNCE_MS ว่าทำไมถึงไม่เขียนทุกครั้งที่ state เปลี่ยน)
  *
  * การค้นบาร์โค้ดเป็น sync เพราะ catalog ถูกโหลดลงเครื่องไว้ก่อนแล้ว (ดู lib/api.ts)
  * ไม่มีสถานะ "กำลังค้น" ให้ผู้ใช้ต้องรอ
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import {
   applyScan,
@@ -20,6 +21,7 @@ import {
   setUnitQty as setUnitQtyPure,
   toCountLines,
   type LedgerRow,
+  type SubmitVariance,
 } from '@cycle-count/core';
 
 import { api, lookup } from './api';
@@ -33,7 +35,8 @@ export type ScanState =
 export type SubmitState =
   | { kind: 'idle' }
   | { kind: 'sending' }
-  | { kind: 'done'; saved: number }
+  /** ส่งสำเร็จ — variance คือใบเฉลยที่ server คำนวณให้หลังบันทึกแล้ว */
+  | { kind: 'done'; saved: number; variance: SubmitVariance }
   | { kind: 'error'; message: string };
 
 /**
@@ -41,6 +44,14 @@ export type SubmitState =
  * ขึ้นเวอร์ชันเพื่อไม่ให้เครื่องที่มีข้อมูลค้างจากโครงเก่าอ่านแล้วพัง
  */
 const storageKey = (sessionId: string) => `cc:ledger:v2:${sessionId}`;
+
+/**
+ * หน่วงการเขียนลงเครื่องเท่านี้ก่อนเขียนจริง
+ *
+ * 800 ms สั้นกว่าจังหวะที่คนหยิบของชิ้นถัดไปมายิง แต่ยาวพอจะกลืนการกดคีย์แพดรัว ๆ
+ * ให้เหลือการเขียนครั้งเดียว — ยิงติดกัน 20 ครั้งใน 15 วินาทีเขียนราว 18 ครั้งลดเหลือ ~1
+ */
+const SAVE_DEBOUNCE_MS = 800;
 
 function load(sessionId: string): LedgerRow[] {
   try {
@@ -81,10 +92,74 @@ export function useLedger(sessionId: string | null) {
     setRestored(true);
   }, [sessionId]);
 
+  /*
+   * เขียนลงเครื่องแบบหน่วงเวลา แต่ยัง flush ทันทีตอนแอปกำลังจะหายไปจากหน้าจอ
+   *
+   * เดิมเขียนทุกครั้งที่ rows เปลี่ยน = ทุกการยิงบาร์โค้ด **และทุกปุ่มคีย์แพดตอนแก้จำนวน**
+   * แต่ละครั้งคือ JSON.stringify ทั้งสมุด (300 SKU ราว 100 KB) แล้วเขียนแบบ sync บน UI thread
+   * ยิงรัว ๆ ในคลังจึงเสียทั้งความลื่นและแบตไปกับการเขียน flash ซ้ำ ๆ ที่ไม่มีใครอ่าน
+   *
+   * เหตุผลที่ยังต้อง flush: ฟังก์ชันนี้มีไว้กัน WebView รีโหลด/แบตหมดกลางรอบแล้วของที่นับหาย
+   * ถ้าหน่วงเฉย ๆ โดยไม่ flush ก็เท่ากับทำลายเหตุผลเดียวที่มันมีอยู่
+   * flush ตอน hidden/pagehide ทำให้หน้าต่างเสี่ยงเหลือแค่ <1 วินาทีของการสแกนต่อเนื่องจริง ๆ
+   */
+  const pending = useRef<{ sessionId: string; rows: LedgerRow[] } | null>(null);
+  const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  /** ทิ้งงานเขียนที่ค้างอยู่โดยไม่เขียน — ใช้ตอนกำลังจะเขียนค่าที่ใหม่กว่าทับอยู่แล้ว */
+  const cancelPendingSave = useCallback(() => {
+    if (timer.current !== null) {
+      clearTimeout(timer.current);
+      timer.current = null;
+    }
+    pending.current = null;
+  }, []);
+
+  const flush = useCallback(() => {
+    const due = pending.current;
+    cancelPendingSave();
+    if (due) save(due.sessionId, due.rows);
+  }, [cancelPendingSave]);
+
+  /*
+   * ตั้งใจไม่มี cleanup ที่ clearTimeout
+   *
+   * ถ้าใส่ cleanup ที่ล้าง timer ทิ้ง การเขียนตอน unmount จะไปพึ่ง "ลำดับของ effect"
+   * ว่า cleanup ของ effect ที่ flush ต้องทำงานทีหลัง — วันไหนมีคนสลับลำดับ effect
+   * ข้อมูลจะหายเงียบ ๆ โดยไม่มีอะไรฟ้อง
+   *
+   * แบบนี้ปลอดภัยทุกทางแทน: รอบถัดไปล้าง timer เก่าเองอยู่แล้ว (บรรทัดล่าง)
+   * และถ้า timer หลุดมายิงหลัง unmount ก็แค่เขียนค่าที่ถูกต้องลงเครื่อง ไม่มี setState ให้พัง
+   */
   useEffect(() => {
     if (!sessionId || !restored) return;
-    save(sessionId, rows);
-  }, [sessionId, restored, rows]);
+
+    pending.current = { sessionId, rows };
+    if (timer.current !== null) clearTimeout(timer.current);
+    timer.current = setTimeout(flush, SAVE_DEBOUNCE_MS);
+  }, [sessionId, restored, rows, flush]);
+
+  /*
+   * แยก effect ออกมาเพราะ listener ต้องผูกครั้งเดียว ไม่ใช่ถอด/ใส่ใหม่ทุกครั้งที่ rows เปลี่ยน
+   * flush อ่านค่าล่าสุดจาก ref อยู่แล้วจึงไม่ต้องมี rows เป็น dependency
+   *
+   * บน Capacitor การกดปุ่ม Home หรือจอดับทำให้ WebView ยิง visibilitychange เป็น hidden
+   * ส่วน pagehide ครอบกรณีที่ WebView ถูกทำลายทิ้งโดยไม่ผ่าน hidden
+   */
+  useEffect(() => {
+    function onHide() {
+      if (document.visibilityState === 'hidden') flush();
+    }
+    document.addEventListener('visibilitychange', onHide);
+    window.addEventListener('pagehide', flush);
+
+    // unmount = ออกจากระบบหรือปิดรอบ ต้องเขียนของที่ค้างลงให้หมดก่อน
+    return () => {
+      document.removeEventListener('visibilitychange', onHide);
+      window.removeEventListener('pagehide', flush);
+      flush();
+    };
+  }, [flush]);
 
   const scan = useCallback((barcode: string) => {
     const code = barcode.trim();
@@ -136,15 +211,29 @@ export function useLedger(sessionId: string | null) {
     try {
       const result = await api.submit({ sessionId, lines: toCountLines(rows) });
       setRows([]);
+
+      /*
+       * เขียนสมุดว่างลงเครื่องทันที ไม่รอ debounce
+       *
+       * ถ้าแอปตายในช่วง 800 ms หลังส่งสำเร็จ แล้วยังเหลือของเก่าค้างอยู่บนดิสก์
+       * พนักงานจะเปิดมาเจอรายการที่ส่งไปแล้วโผล่มาใหม่ แล้วนึกว่ายังไม่ได้ส่ง
+       * (ส่งซ้ำไม่ทำให้ยอดเพี้ยนเพราะ server upsert แต่สร้างความสับสนโดยไม่จำเป็น)
+       *
+       * เขียนตรงแทนการเรียก flush() เพราะ pending ยังถือ rows ชุดเก่าอยู่ —
+       * effect ที่อัปเดต pending ทำงานหลัง render ไม่ทันบรรทัดนี้
+       */
+      cancelPendingSave();
+      save(sessionId, []);
+
       setScanState({ kind: 'idle' });
-      setSubmitState({ kind: 'done', saved: result.saved });
+      setSubmitState({ kind: 'done', saved: result.saved, variance: result.variance });
     } catch (err) {
       setSubmitState({
         kind: 'error',
         message: err instanceof Error ? err.message : 'ส่งผลไม่สำเร็จ ลองใหม่อีกครั้ง',
       });
     }
-  }, [sessionId, rows]);
+  }, [sessionId, rows, cancelPendingSave]);
 
   const dismissSubmit = useCallback(() => setSubmitState({ kind: 'idle' }), []);
 

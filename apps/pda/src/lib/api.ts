@@ -15,7 +15,12 @@
  *   GET  /api/pda/catalog?sessionId=... → { sessionId, generatedAt, entries }
  *   POST /api/pda/count-lines           → { saved }
  */
-import type { BarcodeLookup, CountLinePayload, CountMode } from '@cycle-count/core';
+import type {
+  BarcodeLookup,
+  CountLinePayload,
+  CountMode,
+  SubmitVariance,
+} from '@cycle-count/core';
 import { authEmailForEmployee } from '@cycle-count/core';
 
 import { indexEntries, readCatalog, writeCatalog, type CatalogSnapshot } from './catalogCache';
@@ -44,6 +49,8 @@ export interface CatalogStatus {
 
 export interface SubmitResult {
   saved: number;
+  /** ใบเฉลยผลต่าง — server คำนวณให้หลังบันทึกเสร็จ ไม่ได้คิดในเครื่อง */
+  variance: SubmitVariance;
 }
 
 export interface CountApi {
@@ -246,7 +253,59 @@ export const mockApi: CountApi = {
 
   async submit({ lines }) {
     await delay(400);
-    return { saved: lines.length };
+
+    /*
+     * ปลอมใบเฉลยให้หน้าจอมีของจริงให้แสดงตอน dev — SKU ที่ 3 ให้ขาด SKU ที่ 5 ให้เกิน
+     * ใช้ลำดับแทนการสุ่ม เพื่อให้กดส่งกี่ครั้งก็ได้ผลเดิม เทียบหน้าจอง่ายกว่า
+     */
+    const byBase = new Map<string, { name: string; baseUom: string; base: number }>();
+    let unknown = 0;
+
+    for (const line of lines) {
+      if (line.flagged || !line.sku) {
+        unknown += 1;
+        continue;
+      }
+      const hit = catalogIndex?.get(line.scannedBarcode);
+      const prev = byBase.get(line.sku);
+      byBase.set(line.sku, {
+        name: hit?.name ?? line.sku,
+        baseUom: hit?.baseUom ?? 'ชิ้น',
+        base: (prev?.base ?? 0) + line.countedQty * line.factorToBase,
+      });
+    }
+
+    const variance: SubmitVariance = {
+      matched: 0,
+      short: 0,
+      over: 0,
+      unknown,
+      withoutExpected: 0,
+      items: [],
+    };
+
+    [...byBase.entries()].forEach(([sku, v], i) => {
+      const offset = i % 5 === 2 ? -12 : i % 5 === 4 ? 5 : 0;
+      const expectedBaseQty = v.base - offset;
+
+      if (offset === 0) {
+        variance.matched += 1;
+        return;
+      }
+      if (offset < 0) variance.short += 1;
+      else variance.over += 1;
+
+      variance.items.push({
+        sku,
+        name: v.name,
+        baseUom: v.baseUom,
+        countedBaseQty: v.base,
+        expectedBaseQty,
+        diff: offset,
+      });
+    });
+
+    return { saved: lines.length, variance };
   },
 };
 

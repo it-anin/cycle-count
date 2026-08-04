@@ -9,7 +9,7 @@
  *
  * ออกแบบสำหรับจอ 480×800 แนวตั้ง
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import { countedBaseQty, varianceKind, type LedgerRow } from '@cycle-count/core';
 
@@ -41,6 +41,87 @@ function varianceLabel(row: LedgerRow): { text: string; kind: string } {
 function needsBaseHint(row: LedgerRow): boolean {
   return row.units.length > 1 || row.units.some((u) => u.factorToBase !== 1);
 }
+
+interface RowProps {
+  row: LedgerRow;
+  blind: boolean;
+  /** อยู่บนสุด = เพิ่งยิงมา ใช้ไฮไลต์ให้เห็นว่าอันไหนคือของที่เพิ่งนับ */
+  isNewest: boolean;
+  isEditing: boolean;
+  /** หน่วยที่กำลังแก้อยู่ในแถวนี้ — null เมื่อไม่ได้แก้แถวนี้ */
+  editingUom: string | null;
+  onPickUnit: (key: string, uom: string) => void;
+}
+
+/**
+ * หนึ่งแถวในสมุด — ห่อ memo() ไว้เพราะรายการยาวได้ถึงหลักร้อย
+ *
+ * ถ้าไม่ห่อ การยิงบาร์โค้ดหนึ่งครั้งตอนมี 300 SKU จะทำให้ React วาดใหม่ทั้ง 300 แถว
+ * ทั้งที่จริงมีแค่สองแถวที่เปลี่ยน (แถวที่ถูกดันขึ้นบนสุด กับแถวเดิมที่เสียตำแหน่งบนสุดไป)
+ *
+ * ใช้ได้ผลเพราะฝั่ง core รักษา object identity ของแถวที่ไม่ถูกแตะไว้อยู่แล้ว:
+ * applyScan() ใช้ rows.map((r) => r.key === key ? updated : r) และ hoist() ใช้ slice()+splice()
+ * ทั้งคู่คืน reference เดิม — shallow compare ของ memo() จึงข้ามแถวที่ไม่เกี่ยวได้จริง
+ *
+ * ⚠ props ทุกตัวต้องนิ่ง ถ้าเผลอส่ง object/arrow ที่สร้างใหม่ทุกรอบเข้ามา memo จะไร้ผลทันที
+ */
+const LedgerRowView = memo(function LedgerRowView({
+  row,
+  blind,
+  isNewest,
+  isEditing,
+  editingUom,
+  onPickUnit,
+}: RowProps) {
+  const v = varianceLabel(row);
+  const baseQty = countedBaseQty(row);
+
+  return (
+    <div
+      className={[
+        'cc-row',
+        isNewest && !isEditing ? 'cc-row--new' : '',
+        isEditing ? 'cc-row--editing' : '',
+        row.flagged ? 'cc-row--flagged' : '',
+      ]
+        .filter(Boolean)
+        .join(' ')}
+    >
+      {/* รอบ blind แถบสีต้องไม่สื่อสถานะ ไม่งั้นก็เท่ากับบอกผลต่างทางอ้อม */}
+      <span
+        className={`cc-row__stripe cc-row__stripe--${blind ? 'plain' : v.kind}`}
+        aria-hidden="true"
+      />
+      <span className="cc-row__main">
+        <span className="cc-row__sku">
+          {row.sku ?? row.units[0]?.lastBarcode}
+          {row.location && <span className="cc-row__loc">{row.location}</span>}
+        </span>
+        <span className="cc-row__name">{row.name}</span>
+        <span className="cc-row__units">
+          {row.units.map((u) => (
+            <button
+              key={u.uom}
+              type="button"
+              className={`cc-unit ${editingUom === u.uom ? 'cc-unit--on' : ''}`}
+              onClick={() => onPickUnit(row.key, u.uom)}
+            >
+              <b>{num(u.qty)}</b> {u.uom}
+              {u.factorToBase !== 1 && <i>×{num(u.factorToBase)}</i>}
+            </button>
+          ))}
+          {needsBaseHint(row) && (
+            <span className="cc-row__base">
+              = {num(baseQty)} {row.baseUom}
+            </span>
+          )}
+        </span>
+      </span>
+      <span className="cc-row__qty">{num(baseQty)}</span>
+      {!blind && <span className={`cc-row__var cc-row__var--${v.kind}`}>{v.text}</span>}
+    </div>
+  );
+});
 
 export default function CountLedgerScreen({ user, session, catalogCount, onSignOut }: Props) {
   /**
@@ -88,6 +169,11 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
 
   const busy = edit !== null || confirming || leaving;
   const scanDiag = useScanDiagnostics();
+
+  /** ต้องนิ่งข้าม render ไม่งั้น memo() ของ LedgerRowView จะพังทุกแถว */
+  const pickUnit = useCallback((key: string, uom: string) => {
+    setEdit({ key, uom, pristine: true });
+  }, []);
 
   /**
    * โหมด broadcast ไม่ต้องแย่งโฟกัสให้ช่องสแกน เพราะบาร์โค้ดมาทาง Intent ไม่ใช่คีย์บอร์ด
@@ -251,57 +337,17 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
             )}
           </div>
         ) : (
-          rows.map((row, i) => {
-            const v = varianceLabel(row);
-            const isEditing = edit?.key === row.key;
-            const baseQty = countedBaseQty(row);
-            return (
-              <div
-                key={row.key}
-                className={[
-                  'cc-row',
-                  i === 0 && !isEditing ? 'cc-row--new' : '',
-                  isEditing ? 'cc-row--editing' : '',
-                  row.flagged ? 'cc-row--flagged' : '',
-                ]
-                  .filter(Boolean)
-                  .join(' ')}
-              >
-                {/* รอบ blind แถบสีต้องไม่สื่อสถานะ ไม่งั้นก็เท่ากับบอกผลต่างทางอ้อม */}
-                <span
-                  className={`cc-row__stripe cc-row__stripe--${blind ? 'plain' : v.kind}`}
-                  aria-hidden="true"
-                />
-                <span className="cc-row__main">
-                  <span className="cc-row__sku">
-                    {row.sku ?? row.units[0]?.lastBarcode}
-                    {row.location && <span className="cc-row__loc">{row.location}</span>}
-                  </span>
-                  <span className="cc-row__name">{row.name}</span>
-                  <span className="cc-row__units">
-                    {row.units.map((u) => (
-                      <button
-                        key={u.uom}
-                        type="button"
-                        className={`cc-unit ${edit?.key === row.key && edit.uom === u.uom ? 'cc-unit--on' : ''}`}
-                        onClick={() => setEdit({ key: row.key, uom: u.uom, pristine: true })}
-                      >
-                        <b>{num(u.qty)}</b> {u.uom}
-                        {u.factorToBase !== 1 && <i>×{num(u.factorToBase)}</i>}
-                      </button>
-                    ))}
-                    {needsBaseHint(row) && (
-                      <span className="cc-row__base">
-                        = {num(baseQty)} {row.baseUom}
-                      </span>
-                    )}
-                  </span>
-                </span>
-                <span className="cc-row__qty">{num(baseQty)}</span>
-                {!blind && <span className={`cc-row__var cc-row__var--${v.kind}`}>{v.text}</span>}
-              </div>
-            );
-          })
+          rows.map((row, i) => (
+            <LedgerRowView
+              key={row.key}
+              row={row}
+              blind={blind}
+              isNewest={i === 0}
+              isEditing={edit?.key === row.key}
+              editingUom={edit?.key === row.key ? edit.uom : null}
+              onPickUnit={pickUnit}
+            />
+          ))
         )}
       </div>
 
@@ -535,12 +581,82 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
         </div>
       )}
 
+      {/*
+        ใบเฉลยหลังส่ง — ตัวเลขนี้มาจาก server ไม่ได้อยู่ในเครื่องมาก่อน
+        รอบ blind จึงยังปิดยอดตอนนับได้ แต่คนนับรู้ทันทีว่าต้องเดินกลับไปดูตัวไหน
+      */}
       {submitState.kind === 'done' && (
-        <div className="cc-toast" role="status">
-          ส่งแล้ว {num(submitState.saved)} รายการ
-          <button type="button" onClick={dismissSubmit} aria-label="ปิด">
-            ✕
-          </button>
+        <div className="cc-sheet" role="dialog" aria-modal="true" aria-label="ผลการนับ">
+          <div className="cc-sheet__panel">
+            <h2 className="cc-sheet__title">ส่งแล้ว {num(submitState.saved)} รายการ</h2>
+
+            <dl className="cc-sheet__stats">
+              <div>
+                <dt>ตรง</dt>
+                <dd className="v-match">{num(submitState.variance.matched)}</dd>
+              </div>
+              <div>
+                <dt>ขาด</dt>
+                <dd className="v-short">{num(submitState.variance.short)}</dd>
+              </div>
+              <div>
+                <dt>เกิน</dt>
+                <dd className="v-over">{num(submitState.variance.over)}</dd>
+              </div>
+              <div>
+                <dt>ตรวจ</dt>
+                <dd className="v-unknown">
+                  {num(submitState.variance.unknown + submitState.variance.withoutExpected)}
+                </dd>
+              </div>
+            </dl>
+
+            {submitState.variance.items.length === 0 ? (
+              <p className="cc-result__ok">
+                {submitState.variance.matched > 0
+                  ? 'ตรงกับยอดระบบทุกรายการ ไม่ต้องนับซ้ำ'
+                  : 'บันทึกแล้ว แต่รอบนี้ยังไม่มียอดตั้งต้นให้เทียบ'}
+              </p>
+            ) : (
+              <>
+                <p className="cc-result__lead">ต้องกลับไปนับซ้ำ</p>
+                <ul className="cc-result__list">
+                  {submitState.variance.items.map((item) => (
+                    <li key={item.sku ?? item.name} className="cc-result__row">
+                      <div className="cc-result__main">
+                        <span className="cc-result__name">{item.name}</span>
+                        <span className="cc-result__meta">
+                          {item.sku ?? '—'} · นับได้ {num(item.countedBaseQty)} {item.baseUom}
+                        </span>
+                      </div>
+                      <span
+                        className={`cc-result__diff ${
+                          item.diff === null ? 'v-unknown' : item.diff < 0 ? 'v-short' : 'v-over'
+                        }`}
+                      >
+                        {item.diff === null
+                          ? 'ไม่มียอดตั้งต้น'
+                          : `${item.diff > 0 ? '+' : ''}${num(item.diff)}`}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
+
+            {submitState.variance.unknown > 0 && (
+              <p className="cc-sheet__warn">
+                ไม่พบใน master {num(submitState.variance.unknown)} รายการ — บันทึกไว้แล้ว
+                แอดมินต้องตรวจก่อนปิดรอบ
+              </p>
+            )}
+
+            <div className="cc-sheet__btns">
+              <button type="button" className="cc-sheet__ok" onClick={dismissSubmit}>
+                นับต่อ
+              </button>
+            </div>
+          </div>
         </div>
       )}
     </div>

@@ -929,6 +929,10 @@ button {
   color: var(--over);
 }
 
+.v-unknown {
+  color: var(--amber);
+}
+
 .cc-sheet__warn {
   margin: 0;
   font-size: 13px;
@@ -1019,7 +1023,83 @@ button {
   cursor: default;
 }
 
-/* ── แจ้งผลหลังส่ง ──────────────────────────────────────────── */
+/* ── ใบเฉลยผลต่างหลังส่ง ────────────────────────────────────── */
+
+.cc-result__ok {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--ok);
+  background: #e9f6f1;
+  padding: 11px 12px;
+}
+
+.cc-result__lead {
+  margin: 0;
+  font-size: 11px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  font-weight: 700;
+  color: var(--ink3);
+}
+
+/*
+  จำกัดความสูงแล้วให้เลื่อนในตัวเอง — ยิงทีเดียวร้อย SKU แล้วผิดครึ่งหนึ่งก็เป็นไปได้
+  ถ้าปล่อยยาว ปุ่ม "นับต่อ" จะหลุดออกนอกจอ 800px แล้วกดไม่ได้
+*/
+.cc-result__list {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 232px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+
+.cc-result__row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cc-result__row:last-child {
+  border-bottom: 0;
+}
+
+/* min-width:0 จำเป็น ไม่งั้น flex item ไม่ยอมหดแล้ว ellipsis ของชื่อไม่ทำงาน */
+.cc-result__main {
+  flex: 1;
+  min-width: 0;
+}
+
+.cc-result__name {
+  display: block;
+  font-size: 14px;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.cc-result__meta {
+  display: block;
+  margin-top: 1px;
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink2);
+  font-variant-numeric: tabular-nums;
+}
+
+.cc-result__diff {
+  flex: none;
+  font-family: var(--mono);
+  font-size: 19px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+}
 
 .cc-toast {
   position: absolute;

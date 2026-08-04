@@ -1,8 +1,11 @@
 /**
- * POST /api/pda/count-lines — บันทึกผลนับ
+ * POST /api/pda/count-lines — บันทึกผลนับ แล้วเฉลยผลต่างกลับไป
  *
  * upsert ตาม (sessionId, lineKey, countedBy) ไม่ใช่ append
  * PDA ส่งยอดรวมของแถวขึ้นมา ส่งซ้ำกี่ครั้งก็ได้ผลเท่าเดิม — เน็ตกระตุกแล้ว retry ได้ปลอดภัย
+ *
+ * response มีใบเฉลยผลต่างติดกลับไปด้วย **คำนวณหลังบันทึกเสร็จแล้วเท่านั้น**
+ * รอบ blind จึงยังปิดยอดตอนนับได้ตามข้อบังคับ แต่คนนับรู้ทันทีว่าต้องกลับไปนับซ้ำตัวไหน
  */
 import { eq, sql } from 'drizzle-orm';
 import { NextResponse } from 'next/server';
@@ -12,6 +15,7 @@ import { countLines, countSessions } from '@cycle-count/db';
 
 import { db } from '@/lib/db';
 import { requireUser } from '@/server/auth';
+import { varianceForSubmission } from '@/server/counting/variance';
 import { badRequest, forbidden, notFound, preflight, withApi } from '@/server/http';
 
 export const dynamic = 'force-dynamic';
@@ -77,5 +81,15 @@ export const POST = withApi(async (req) => {
     })
     .returning({ id: countLines.id });
 
-  return NextResponse.json({ saved: saved.length });
+  /*
+   * เฉลยผลต่างหลังบันทึกแล้ว — ลำดับสำคัญ ถ้าคำนวณก่อน upsert จะได้ยอดของรอบก่อนหน้า
+   *
+   * นับ unknown จากสิ่งที่เพิ่งส่งขึ้นมา ไม่ใช่ทั้งรอบ เพราะเป็นคำตอบให้คนที่กดส่งตอนนี้
+   * ว่า "ของที่เพิ่งยิงไปมีกี่ตัวที่ระบบไม่รู้จัก"
+   */
+  const skus = [...new Set(deduped.filter((l) => !l.flagged && l.sku).map((l) => l.sku!))];
+  const unknownCount = new Set(deduped.filter((l) => l.flagged).map((l) => l.lineKey)).size;
+  const variance = await varianceForSubmission(sessionId, skus, unknownCount);
+
+  return NextResponse.json({ saved: saved.length, variance });
 });
