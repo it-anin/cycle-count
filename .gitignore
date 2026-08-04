@@ -28,6 +28,10 @@ build/
 *.xlsx
 *.xls
 
+# APK ที่ก๊อปมาไว้ใน public/ ให้ PDA โหลดผ่าน LAN ตอน dev
+# เป็น build artifact ไม่ใช่ซอร์ส และไฟล์ใหญ่ 4 MB ถ้าเข้า git จะบวมถาวรลบไม่ได้
+*.apk
+
 # drizzle
 packages/db/drizzle/meta/_journal.json.bak
 

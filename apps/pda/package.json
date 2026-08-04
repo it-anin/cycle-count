@@ -12,7 +12,7 @@
     "cap:sync": "cap sync",
     "cap:open:android": "cap open android",
     "android:sync": "pnpm build && cap sync android",
-    "android:apk": "pnpm build && cap sync android && cd android && gradlew.bat assembleDebug"
+    "android:apk": "pnpm build && cap sync android && cd android && .\\gradlew.bat assembleDebug"
   },
   "dependencies": {
     "@capacitor/core": "^6.2.0",
