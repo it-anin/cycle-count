@@ -12,6 +12,8 @@
 
 import { useMemo, useState } from 'react';
 
+import NewSessionDialog from './NewSessionDialog';
+
 type Kind = 'match' | 'short' | 'over' | 'unknown';
 
 interface Row {
@@ -75,6 +77,7 @@ export default function SessionTable({ report }: { report: Report }) {
   const [closing, setClosing] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string } | null>(null);
   const [closed, setClosed] = useState(session.status === 'closed');
+  const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const rows = useMemo(() => {
@@ -162,6 +165,13 @@ export default function SessionTable({ report }: { report: Report }) {
         </span>
 
         <div className="ml-auto flex gap-2">
+          <button
+            type="button"
+            onClick={() => setOpening(true)}
+            className="border border-slate-400 bg-white px-3 py-1 text-xs hover:bg-slate-50"
+          >
+            + เปิดรอบใหม่
+          </button>
           <a
             href={`/api/admin/sessions/${session.id}/export`}
             className="border border-slate-400 bg-white px-3 py-1 text-xs hover:bg-slate-50"
@@ -317,6 +327,8 @@ export default function SessionTable({ report }: { report: Report }) {
           </tbody>
         </table>
       </div>
+
+      {opening && <NewSessionDialog onClose={() => setOpening(false)} />}
 
       {/* ── ยืนยันก่อนปิดรอบ ───────────────────────────────── */}
       {confirm && (
