@@ -1,24 +1,60 @@
-export default function HomePage() {
-  return (
-    <main className="mx-auto max-w-3xl px-6 py-16">
-      <h1 className="text-3xl font-bold">Cycle Count — Admin</h1>
-      <p className="mt-2 text-slate-500">ระบบนับสต็อก · หน้าจัดการสำหรับแอดมิน</p>
+/**
+ * หน้าแรก — พาไปที่รอบนับล่าสุดเลย
+ *
+ * แอดมินเปิดเว็บมาก็เพื่อดูรอบที่กำลังนับอยู่ 99% ของเวลา
+ * ให้มีหน้ารายการคั่นกลางเป็นการเพิ่มคลิกโดยไม่ได้อะไร
+ * (รอบเก่าเข้าถึงได้จาก URL ตรง ๆ ไว้ค่อยทำตัวสลับรอบตอนมีหลายคลัง)
+ */
+import { desc } from 'drizzle-orm';
+import { redirect } from 'next/navigation';
 
-      <div className="mt-8 rounded-lg border border-slate-200 p-5 dark:border-slate-800">
-        <h2 className="font-semibold">สถานะ: Phase 0 — Setup ✔</h2>
-        <ul className="mt-3 list-disc space-y-1 pl-5 text-sm text-slate-600 dark:text-slate-400">
-          <li>โครง monorepo + Drizzle schema พร้อม</li>
-          <li>Pricing resolver + unit tests พร้อม</li>
-          <li>ถัดไป (Phase 1): auth + หน้าอัปโหลด Excel + column mapping</li>
-        </ul>
-      </div>
+import { countSessions } from '@cycle-count/db';
 
-      <p className="mt-6 text-sm text-slate-500">
-        ตรวจสุขภาพระบบ:{' '}
-        <a className="text-blue-600 underline" href="/api/health">
-          /api/health
-        </a>
-      </p>
-    </main>
-  );
+import { db } from '@/lib/db';
+import { requireRole } from '@/server/auth';
+import { ApiError } from '@/server/http';
+
+export const dynamic = 'force-dynamic';
+export const preferredRegion = 'sin1';
+
+export default async function HomePage() {
+  try {
+    await requireRole(new Request('http://localhost'), 'admin');
+  } catch (err) {
+    if (err instanceof ApiError && err.status === 401) redirect('/login');
+    if (err instanceof ApiError && err.status === 403) {
+      return (
+        <main className="grid min-h-dvh place-items-center px-6 text-center">
+          <div>
+            <p className="text-lg font-bold">บัญชีนี้ไม่มีสิทธิ์เข้าหน้าแอดมิน</p>
+            <p className="mt-1 text-sm text-slate-500">
+              ต้องเป็น role admin — ติดต่อผู้ดูแลระบบเพื่อเปลี่ยนสิทธิ์
+            </p>
+          </div>
+        </main>
+      );
+    }
+    throw err;
+  }
+
+  const [latest] = await db
+    .select({ id: countSessions.id })
+    .from(countSessions)
+    .orderBy(desc(countSessions.createdAt))
+    .limit(1);
+
+  if (!latest) {
+    return (
+      <main className="grid min-h-dvh place-items-center px-6 text-center">
+        <div>
+          <p className="text-lg font-bold">ยังไม่มีรอบนับ</p>
+          <p className="mt-1 text-sm text-slate-500">
+            เปิดรอบแรกด้วย <code className="font-mono">POST /api/admin/sessions/prepare</code>
+          </p>
+        </div>
+      </main>
+    );
+  }
+
+  redirect(`/sessions/${latest.id}`);
 }

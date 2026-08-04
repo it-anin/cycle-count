@@ -1,0 +1,1040 @@
+<!doctype html>
+<html lang="th">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Cycle Count — โครงหน้าแอดมิน 20 แบบ</title>
+<style>
+/* ═══════════════════════════════════════════════════════════════
+   หน้ารวมสำหรับเลือกแบบ — ไม่ใช่โค้ดที่จะเอาไปใช้จริง
+   แต่ละกรอบคือจอ 1280×800 ย่อลงมา ดูโครงกับภาษาภาพเป็นหลัก
+   ข้อมูลในทุกแบบเป็นชุดเดียวกัน จะได้เทียบกันได้ตรง ๆ
+   ═══════════════════════════════════════════════════════════════ */
+
+*, *::before, *::after { box-sizing: border-box; }
+
+:root {
+  --pw: 1280px;
+  --ph: 800px;
+  --s: 0.5;
+  --ink: #14181d;
+  --ink2: #5c6672;
+  --ink3: #939da8;
+  --line: #dfe4e9;
+  --bg: #f6f7f9;
+  --card: #ffffff;
+  --accent: #1f6f5c;
+  --th: 'Noto Sans Thai', 'Leelawadee UI', 'Segoe UI', system-ui, sans-serif;
+  --mono: 'Cascadia Mono', Consolas, ui-monospace, monospace;
+}
+
+@media (max-width: 760px) { :root { --s: 0.33; } }
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--ink);
+  font-family: var(--th);
+  line-height: 1.6;
+  -webkit-text-size-adjust: 100%;
+}
+
+.wrap { max-width: 1500px; margin: 0 auto; padding: 40px 24px 80px; }
+
+.lead { max-width: 62ch; }
+.lead h1 { font-size: 30px; margin: 0 0 6px; letter-spacing: -0.01em; }
+.lead p { margin: 0 0 8px; color: var(--ink2); font-size: 15px; }
+.lead code { font-family: var(--mono); font-size: 13px; background: #fff; padding: 1px 5px; border: 1px solid var(--line); }
+
+.note {
+  margin-top: 18px; padding: 12px 14px; background: #fff;
+  border-left: 3px solid var(--accent); font-size: 14px; color: var(--ink2);
+}
+
+.grid {
+  margin-top: 36px;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(calc(var(--pw) * var(--s)), 1fr));
+  gap: 34px 26px;
+}
+
+.item { min-width: 0; }
+.item__head { display: flex; align-items: baseline; gap: 9px; margin-bottom: 9px; }
+.item__no {
+  font-family: var(--mono); font-size: 12px; font-weight: 700;
+  background: var(--ink); color: #fff; padding: 2px 7px; flex: none;
+}
+.item__name { font-size: 16px; font-weight: 700; }
+.picked { font-size: 12.5px; font-weight: 700; color: #b5651d; }
+.item--picked .frame { border-color: #b5651d; box-shadow: 0 0 0 3px rgba(181,101,29,.16); }
+.item__why { margin: 0 0 10px; font-size: 13.5px; color: var(--ink2); }
+
+.frame {
+  width: calc(var(--pw) * var(--s));
+  height: calc(var(--ph) * var(--s));
+  overflow: hidden;
+  border: 1px solid var(--line);
+  background: #fff;
+  box-shadow: 0 1px 3px rgba(20, 24, 29, 0.07);
+}
+.screen {
+  width: var(--pw); height: var(--ph);
+  transform: scale(var(--s)); transform-origin: 0 0;
+  overflow: hidden; font-size: 15px; line-height: 1.5;
+}
+
+/* ── ของกลางที่ทุกแบบใช้ร่วมได้ ─────────────────────────── */
+.screen table { border-collapse: collapse; width: 100%; font-size: 15px; }
+.screen th { text-align: left; font-weight: 700; white-space: nowrap; }
+.screen td { white-space: nowrap; }
+.num { font-family: var(--mono); font-variant-numeric: tabular-nums; text-align: right; }
+.neg { color: #c2352b; }
+.pos { color: #2668a3; }
+.ok  { color: #17795c; }
+
+@media print { body { background: #fff; } .frame { break-inside: avoid; } }
+</style>
+</head>
+<body>
+<div class="wrap">
+
+<div class="lead">
+  <h1>โครงหน้าแอดมิน — 20 แบบ</h1>
+  <p>ทุกแบบใช้ข้อมูลชุดเดียวกัน: รอบนับ <code>CC-260731-WH</code> คลังสินค้า โหมดปิดยอด
+     ตรง 892 / ขาด 14 / เกิน 3 / ต้องตรวจ 1 — จะได้เทียบกันที่โครงกับภาษาภาพล้วน ๆ</p>
+  <p>แต่ละกรอบคือจอ 1280×800 ย่อครึ่งหนึ่ง</p>
+  <div class="note">
+    เลือกมาหนึ่งแบบแล้วบอกหมายเลข ผมจะทำเป็นหน้าจริงต่อด้วย Next.js + Tailwind
+    เอาแบบไหนผสมกันก็ได้ เช่น &ldquo;เอาโครงข้อ 4 แต่สีกับตัวหนังสือแบบข้อ 9&rdquo;
+  </div>
+</div>
+
+<div class="grid">
+
+<!-- ═══ 1 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">01</span><span class="item__name">แถบข้างคลาสสิก</span></div>
+  <p class="item__why">มาตรฐานหลังบ้านทั่วไป เมนูซ้ายเข้ม เนื้อหาขาว — ปลอดภัยที่สุด ไม่มีใครงง</p>
+  <div class="frame"><div class="screen d1">
+    <style>
+      .d1 { display: grid; grid-template-columns: 232px 1fr; height: 100%; background: #fff; color: #1b2027; }
+      .d1 aside { background: #1b2430; color: #cfd8e3; padding: 22px 0; }
+      .d1 .brand { padding: 0 22px 22px; font-weight: 700; color: #fff; font-size: 18px; }
+      .d1 nav a { display: block; padding: 11px 22px; color: #9fadbd; text-decoration: none; font-size: 15px; }
+      .d1 nav a.on { background: #2b3949; color: #fff; box-shadow: inset 3px 0 0 #4ea88a; }
+      .d1 main { padding: 26px 30px; overflow: hidden; }
+      .d1 h2 { margin: 0; font-size: 23px; }
+      .d1 .sub { color: #6b7684; font-size: 14px; margin: 3px 0 22px; }
+      .d1 .stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 14px; margin-bottom: 24px; }
+      .d1 .st { border: 1px solid #e3e8ee; padding: 13px 15px; }
+      .d1 .st b { display: block; font-size: 27px; font-family: var(--mono); }
+      .d1 .st span { font-size: 12.5px; color: #6b7684; }
+      .d1 th { padding: 9px 12px; border-bottom: 2px solid #1b2430; font-size: 13px; color: #4a5563; }
+      .d1 td { padding: 10px 12px; border-bottom: 1px solid #eef1f5; }
+    </style>
+    <aside>
+      <div class="brand">Cycle Count</div>
+      <nav>
+        <a class="on">รอบนับ</a><a>สินค้า</a><a>รายงานผลต่าง</a><a>นำเข้าไฟล์</a><a>ผู้ใช้</a>
+      </nav>
+    </aside>
+    <main>
+      <h2>CC-260731-WH</h2>
+      <div class="sub">คลังสินค้า · ปิดยอด · กำลังนับ · ตัดยอด 31 ก.ค. 14:32</div>
+      <div class="stats">
+        <div class="st"><b class="ok">892</b><span>ตรง</span></div>
+        <div class="st"><b class="neg">14</b><span>ขาด</span></div>
+        <div class="st"><b class="pos">3</b><span>เกิน</span></div>
+        <div class="st"><b>1</b><span>ต้องตรวจ</span></div>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td></tr>
+      </table>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 2 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">02</span><span class="item__name">รางไอคอน</span></div>
+  <p class="item__why">เมนูเหลือ 64px ยกพื้นที่ให้ตารางเกือบทั้งจอ — เหมาะเวลาต้องอ่านผลต่างหลายร้อยแถว</p>
+  <div class="frame"><div class="screen d2">
+    <style>
+      .d2 { display: grid; grid-template-columns: 64px 1fr; height: 100%; background: #fff; }
+      .d2 .rail { background: #10241d; display: flex; flex-direction: column; align-items: center; padding: 14px 0; gap: 6px; }
+      .d2 .rail i { width: 40px; height: 40px; display: grid; place-items: center; color: #6f9c8c; font-style: normal; font-size: 18px; }
+      .d2 .rail i.on { background: #1d4437; color: #7ee0bd; }
+      .d2 main { padding: 20px 26px; overflow: hidden; }
+      .d2 .bar { display: flex; align-items: center; gap: 14px; margin-bottom: 16px; }
+      .d2 h2 { margin: 0; font-size: 21px; }
+      .d2 .chip { font-size: 12px; border: 1px solid #cfd8d5; padding: 2px 9px; color: #4b5b56; }
+      .d2 .chip--live { background: #10241d; color: #7ee0bd; border-color: #10241d; }
+      .d2 .push { margin-left: auto; display: flex; gap: 8px; }
+      .d2 .btn { font-size: 13px; padding: 6px 13px; border: 1px solid #10241d; }
+      .d2 .btn--fill { background: #10241d; color: #fff; }
+      .d2 th { padding: 7px 10px; background: #f2f5f4; font-size: 12.5px; border-bottom: 1px solid #dde4e2; }
+      .d2 td { padding: 7px 10px; border-bottom: 1px solid #f0f3f2; font-size: 14px; }
+      .d2 tr:nth-child(even) td { background: #fafbfb; }
+    </style>
+    <div class="rail"><i class="on">▤</i><i>◫</i><i>◔</i><i>↥</i><i>☺</i></div>
+    <main>
+      <div class="bar">
+        <h2>CC-260731-WH</h2>
+        <span class="chip">คลังสินค้า</span><span class="chip">ปิดยอด</span><span class="chip--live chip">กำลังนับ</span>
+        <span class="push"><span class="btn">ส่งออก</span><span class="btn btn--fill">ปิดรอบ</span></span>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th>ตำแหน่ง</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th><th>ผู้นับ</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td>A-12-03</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td><td>EMP-001</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td>B-04-11</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td><td>EMP-001</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td>B-04-12</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td><td>EMP-901</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td>C-01-07</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td><td>EMP-901</td></tr>
+        <tr><td>100340</td><td>สำลีก้อน 50 g</td><td>C-02-02</td><td class="num">210</td><td class="num">210</td><td class="num ok">0</td><td class="num">—</td><td>EMP-001</td></tr>
+        <tr><td>100512</td><td>แอลกอฮอล์ 450 ml</td><td>D-08-01</td><td class="num">64</td><td class="num">64</td><td class="num ok">0</td><td class="num">—</td><td>EMP-902</td></tr>
+      </table>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 3 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">03</span><span class="item__name">แถบบนอย่างเดียว</span></div>
+  <p class="item__why">ไม่มีเมนูข้าง เนื้อหาจัดกลางกว้างจำกัด — อ่านสบายตาที่สุด แต่เมนูเยอะไม่ได้</p>
+  <div class="frame"><div class="screen d3">
+    <style>
+      .d3 { height: 100%; background: #fbfaf7; }
+      .d3 header { background: #fff; border-bottom: 1px solid #e6e2da; padding: 0 34px; display: flex; align-items: center; gap: 26px; height: 62px; }
+      .d3 .lg { font-weight: 700; font-size: 17px; letter-spacing: -0.01em; }
+      .d3 nav { display: flex; gap: 22px; font-size: 14.5px; color: #6c6459; }
+      .d3 nav b { color: #171310; border-bottom: 2px solid #b5651d; padding-bottom: 19px; }
+      .d3 .me { margin-left: auto; font-size: 13.5px; color: #6c6459; }
+      .d3 .body { max-width: 940px; margin: 0 auto; padding: 30px 20px; }
+      .d3 h2 { margin: 0 0 2px; font-size: 25px; }
+      .d3 .sub { color: #6c6459; font-size: 14px; margin-bottom: 24px; }
+      .d3 .row { display: flex; gap: 32px; margin-bottom: 26px; padding-bottom: 20px; border-bottom: 1px solid #e6e2da; }
+      .d3 .row div b { display: block; font-size: 30px; font-family: var(--mono); line-height: 1.1; }
+      .d3 .row div span { font-size: 12.5px; color: #6c6459; }
+      .d3 th { padding: 8px 0; font-size: 12.5px; color: #6c6459; border-bottom: 1px solid #ddd8ce; }
+      .d3 td { padding: 11px 0; border-bottom: 1px solid #eeeae2; }
+    </style>
+    <header>
+      <span class="lg">Cycle Count</span>
+      <nav><b>รอบนับ</b><span>สินค้า</span><span>รายงาน</span><span>นำเข้า</span><span>ผู้ใช้</span></nav>
+      <span class="me">แอดมินคลังสินค้า ▾</span>
+    </header>
+    <div class="body">
+      <h2>CC-260731-WH</h2>
+      <div class="sub">คลังสินค้า · ปิดยอด · ตัดยอด 31 ก.ค. 2569 14:32</div>
+      <div class="row">
+        <div><b class="ok">892</b><span>ตรง</span></div>
+        <div><b class="neg">14</b><span>ขาด</span></div>
+        <div><b class="pos">3</b><span>เกิน</span></div>
+        <div><b>1</b><span>ต้องตรวจ</span></div>
+        <div><b class="neg">−3,065</b><span>มูลค่าผลต่าง</span></div>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td></tr>
+      </table>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 4 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">04</span><span class="item__name">รายการ + รายละเอียด</span></div>
+  <p class="item__why">รายการรอบนับค้างซ้ายตลอด สลับดูทีละรอบโดยไม่ต้องกดกลับ — ดีเวลามีหลายรอบพร้อมกัน</p>
+  <div class="frame"><div class="screen d4">
+    <style>
+      .d4 { display: grid; grid-template-columns: 300px 1fr; height: 100%; background: #fff; }
+      .d4 .list { border-right: 1px solid #e4e7ec; background: #fafbfc; overflow: hidden; }
+      .d4 .list h3 { margin: 0; padding: 16px 18px 12px; font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #7a838f; }
+      .d4 .s { padding: 13px 18px; border-bottom: 1px solid #edf0f3; }
+      .d4 .s.on { background: #fff; box-shadow: inset 3px 0 0 #3c5ccf; }
+      .d4 .s b { display: block; font-size: 15px; }
+      .d4 .s span { font-size: 12.5px; color: #7a838f; }
+      .d4 .s .tag { float: right; font-size: 11px; padding: 1px 7px; background: #e7ecfb; color: #3c5ccf; }
+      .d4 main { padding: 22px 26px; overflow: hidden; }
+      .d4 h2 { margin: 0 0 3px; font-size: 22px; }
+      .d4 .sub { color: #7a838f; font-size: 13.5px; margin-bottom: 20px; }
+      .d4 .pills { display: flex; gap: 8px; margin-bottom: 18px; }
+      .d4 .p { padding: 8px 15px; border: 1px solid #e4e7ec; font-size: 13px; }
+      .d4 .p b { font-family: var(--mono); font-size: 17px; margin-right: 5px; }
+      .d4 th { padding: 8px 11px; font-size: 12.5px; color: #7a838f; border-bottom: 1px solid #e4e7ec; }
+      .d4 td { padding: 9px 11px; border-bottom: 1px solid #f2f4f6; font-size: 14px; }
+    </style>
+    <div class="list">
+      <h3>รอบนับ</h3>
+      <div class="s on"><span class="tag">กำลังนับ</span><b>CC-260731-WH</b><span>คลังสินค้า · ปิดยอด</span></div>
+      <div class="s"><b>CC-260715-WH</b><span>คลังสินค้า · ปิดแล้ว</span></div>
+      <div class="s"><b>CC-260701-BR2</b><span>สาขา 2 · ปิดแล้ว</span></div>
+      <div class="s"><b>CC-260615-WH</b><span>คลังสินค้า · ปิดแล้ว</span></div>
+    </div>
+    <main>
+      <h2>CC-260731-WH</h2>
+      <div class="sub">ตัดยอด 31 ก.ค. 14:32 · ผู้นับ 3 คน · 910 SKU</div>
+      <div class="pills">
+        <span class="p"><b class="ok">892</b>ตรง</span>
+        <span class="p"><b class="neg">14</b>ขาด</span>
+        <span class="p"><b class="pos">3</b>เกิน</span>
+        <span class="p"><b>1</b>ต้องตรวจ</span>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td></tr>
+      </table>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 5 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">05</span><span class="item__name">สามคอลัมน์</span></div>
+  <p class="item__why">เมนู + รายการ + รายละเอียด เห็นครบในจอเดียว — แน่นแต่ไม่ต้องเปลี่ยนหน้าเลย</p>
+  <div class="frame"><div class="screen d5">
+    <style>
+      .d5 { display: grid; grid-template-columns: 60px 264px 1fr; height: 100%; background: #fff; font-size: 14px; }
+      .d5 .r { background: #24262b; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 12px 0; }
+      .d5 .r i { width: 36px; height: 36px; display: grid; place-items: center; color: #8a8f99; font-style: normal; }
+      .d5 .r i.on { background: #3a3d45; color: #fff; }
+      .d5 .mid { border-right: 1px solid #e6e8ec; overflow: hidden; }
+      .d5 .mh { padding: 14px 16px; border-bottom: 1px solid #e6e8ec; font-weight: 700; }
+      .d5 .it { padding: 11px 16px; border-bottom: 1px solid #f1f3f6; }
+      .d5 .it.on { background: #f4f7ff; box-shadow: inset 2px 0 0 #2f4fd8; }
+      .d5 .it b { display: block; font-size: 14px; }
+      .d5 .it span { font-size: 12px; color: #838b98; }
+      .d5 main { padding: 18px 22px; overflow: hidden; }
+      .d5 h2 { margin: 0 0 14px; font-size: 20px; }
+      .d5 .kv { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px 20px; margin-bottom: 18px; font-size: 13px; }
+      .d5 .kv span { color: #838b98; }
+      .d5 th { padding: 7px 9px; font-size: 12px; color: #838b98; border-bottom: 1px solid #e6e8ec; }
+      .d5 td { padding: 8px 9px; border-bottom: 1px solid #f4f6f8; font-size: 13.5px; }
+    </style>
+    <div class="r"><i class="on">▤</i><i>◫</i><i>◔</i><i>↥</i></div>
+    <div class="mid">
+      <div class="mh">รอบนับ</div>
+      <div class="it on"><b>CC-260731-WH</b><span>คลังสินค้า · กำลังนับ</span></div>
+      <div class="it"><b>CC-260715-WH</b><span>คลังสินค้า · ปิดแล้ว</span></div>
+      <div class="it"><b>CC-260701-BR2</b><span>สาขา 2 · ปิดแล้ว</span></div>
+    </div>
+    <main>
+      <h2>CC-260731-WH</h2>
+      <div class="kv">
+        <div><span>สาขา</span> คลังสินค้า</div><div><span>โหมด</span> ปิดยอด</div>
+        <div><span>ตัดยอด</span> 31 ก.ค. 14:32</div><div><span>ผู้นับ</span> 3 คน</div>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อ</th><th class="num">ตั้งต้น</th><th class="num">นับ</th><th class="num">ต่าง</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td></tr>
+      </table>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 6 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">06</span><span class="item__name">การ์ดสรุปนำ</span></div>
+  <p class="item__why">เปิดมาเห็นภาพรวมทุกรอบก่อน แล้วค่อยเจาะ — เหมาะถ้าแอดมินดูหลายคลัง</p>
+  <div class="frame"><div class="screen d6">
+    <style>
+      .d6 { height: 100%; background: #eef1f6; }
+      .d6 header { background: #fff; padding: 0 28px; height: 58px; display: flex; align-items: center; gap: 24px; border-bottom: 1px solid #dfe4ec; }
+      .d6 .lg { font-weight: 700; }
+      .d6 nav { display: flex; gap: 20px; font-size: 14px; color: #6a7280; }
+      .d6 nav b { color: #1a1f27; }
+      .d6 .body { padding: 22px 28px; }
+      .d6 .cards { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-bottom: 20px; }
+      .d6 .c { background: #fff; padding: 16px 18px; border-radius: 2px; }
+      .d6 .c span { font-size: 12.5px; color: #6a7280; }
+      .d6 .c b { display: block; font-size: 32px; font-family: var(--mono); line-height: 1.15; }
+      .d6 .c i { font-style: normal; font-size: 12px; color: #8b93a1; }
+      .d6 .panel { background: #fff; padding: 18px 20px; }
+      .d6 .panel h3 { margin: 0 0 14px; font-size: 15px; }
+      .d6 th { padding: 8px 10px; font-size: 12.5px; color: #6a7280; border-bottom: 1px solid #e3e7ee; }
+      .d6 td { padding: 9px 10px; border-bottom: 1px solid #f0f2f6; font-size: 14px; }
+      .d6 .bar { height: 5px; background: #e3e7ee; width: 120px; }
+      .d6 .bar i { display: block; height: 100%; background: #17795c; }
+    </style>
+    <header><span class="lg">Cycle Count</span><nav><b>ภาพรวม</b><span>รอบนับ</span><span>สินค้า</span><span>ผู้ใช้</span></nav></header>
+    <div class="body">
+      <div class="cards">
+        <div class="c"><span>รอบที่กำลังนับ</span><b>1</b><i>CC-260731-WH</i></div>
+        <div class="c"><span>ความคืบหน้า</span><b>910</b><i>จาก 6,696 SKU</i></div>
+        <div class="c"><span>พบผลต่าง</span><b class="neg">17</b><i>ขาด 14 · เกิน 3</i></div>
+        <div class="c"><span>มูลค่าผลต่าง</span><b class="neg">−3,065</b><i>บาท</i></div>
+      </div>
+      <div class="panel">
+        <h3>รอบนับล่าสุด</h3>
+        <table>
+          <tr><th>รหัส</th><th>สาขา</th><th>โหมด</th><th>สถานะ</th><th>ความคืบหน้า</th><th class="num">ผลต่าง</th></tr>
+          <tr><td>CC-260731-WH</td><td>คลังสินค้า</td><td>ปิดยอด</td><td>กำลังนับ</td><td><span class="bar"><i style="width:14%"></i></span></td><td class="num neg">−3,065</td></tr>
+          <tr><td>CC-260715-WH</td><td>คลังสินค้า</td><td>ปิดยอด</td><td>ปิดแล้ว</td><td><span class="bar"><i style="width:100%"></i></span></td><td class="num neg">−8,120</td></tr>
+          <tr><td>CC-260701-BR2</td><td>สาขา 2</td><td>รอบทวน</td><td>ปิดแล้ว</td><td><span class="bar"><i style="width:100%"></i></span></td><td class="num pos">+430</td></tr>
+        </table>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 7 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">07</span><span class="item__name">โหมดเอกสาร</span></div>
+  <p class="item__why">หน้าตาเหมือนรายงานที่พิมพ์ส่งผู้ตรวจสอบได้เลย — สั่งพิมพ์แล้วออกมาเหมือนที่เห็น</p>
+  <div class="frame"><div class="screen d7">
+    <style>
+      .d7 { height: 100%; background: #e9e7e2; padding: 22px 0; overflow: hidden; font-family: 'Sarabun', var(--th); }
+      .d7 .paper { width: 900px; margin: 0 auto; background: #fff; padding: 40px 52px; box-shadow: 0 2px 10px rgba(0,0,0,.09); }
+      .d7 .hd { display: flex; justify-content: space-between; align-items: flex-start; border-bottom: 2px solid #23201c; padding-bottom: 14px; }
+      .d7 h2 { margin: 0; font-size: 24px; letter-spacing: -0.01em; }
+      .d7 .co { text-align: right; font-size: 12.5px; color: #6a6259; line-height: 1.7; }
+      .d7 .meta { display: grid; grid-template-columns: repeat(4, 1fr); gap: 10px; margin: 20px 0 24px; font-size: 13px; }
+      .d7 .meta span { display: block; color: #8a8177; font-size: 11.5px; letter-spacing: .06em; text-transform: uppercase; }
+      .d7 th { border-bottom: 1px solid #23201c; padding: 7px 8px; font-size: 12px; letter-spacing: .04em; text-transform: uppercase; }
+      .d7 td { padding: 8px; border-bottom: 1px solid #eae7e1; font-size: 13.5px; }
+      .d7 tfoot td { border-top: 2px solid #23201c; border-bottom: 0; font-weight: 700; padding-top: 10px; }
+      .d7 .sign { margin-top: 40px; display: flex; gap: 60px; font-size: 12.5px; color: #6a6259; }
+      .d7 .sign div { border-top: 1px solid #b8b0a5; padding-top: 6px; width: 200px; }
+    </style>
+    <div class="paper">
+      <div class="hd">
+        <div><h2>รายงานผลต่างการนับสต็อก</h2><div style="font-size:13px;color:#6a6259">CC-260731-WH</div></div>
+        <div class="co">บริษัท ANIN จำกัด<br />คลังสินค้า<br />พิมพ์ 4 ส.ค. 2569</div>
+      </div>
+      <div class="meta">
+        <div><span>วันที่ตัดยอด</span>31 ก.ค. 2569 14:32</div>
+        <div><span>โหมด</span>ปิดยอด (blind)</div>
+        <div><span>ผู้นับ</span>3 คน</div>
+        <div><span>SKU ที่นับ</span>910</div>
+      </div>
+      <table>
+        <thead><tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr></thead>
+        <tbody>
+          <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num">−12</td><td class="num">−2,400.00</td></tr>
+          <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num">−5</td><td class="num">−1,250.00</td></tr>
+          <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num">+3</td><td class="num">+720.00</td></tr>
+          <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num">−3</td><td class="num">−135.00</td></tr>
+        </tbody>
+        <tfoot><tr><td colspan="5">รวมมูลค่าผลต่าง</td><td class="num">−3,065.00</td></tr></tfoot>
+      </table>
+      <div class="sign"><div>ผู้จัดทำ</div><div>ผู้ตรวจสอบ</div><div>ผู้อนุมัติ</div></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 8 ═══ แบบที่เลือกใช้จริง ════════════════════════════ -->
+<div class="item item--picked">
+  <div class="item__head"><span class="item__no">08</span><span class="item__name">ตารางเต็มจอ</span><span class="picked">← เลือกแบบนี้</span></div>
+  <p class="item__why">แน่นแบบ Excel เห็นได้ 25 แถวในจอเดียว — เร็วที่สุดถ้าต้องไล่ผลต่างเป็นร้อยรายการ<br />
+    <b>เพิ่มปุ่มส่งออกกับปิดรอบไว้มุมขวาบนแล้ว</b> — วางไว้แถบบนซึ่งเป็นระดับ &ldquo;ทั้งรอบนับ&rdquo;
+    ไม่ปนกับแถบล่างที่เป็นตัวกรองของตาราง</p>
+  <div class="frame"><div class="screen d8">
+    <style>
+      .d8 { height: 100%; background: #fff; display: grid; grid-template-rows: 40px 34px 1fr; font-size: 13px; }
+      .d8 .top { background: #f3f4f6; border-bottom: 1px solid #d5d8dd; display: flex; align-items: center; gap: 18px; padding: 0 12px; font-size: 12.5px; }
+      .d8 .top b { font-size: 13px; }
+      .d8 .top span { color: #6b7280; }
+      .d8 .acts { margin-left: auto; display: flex; gap: 7px; }
+      .d8 .a { font-size: 12px; padding: 4px 12px; border: 1px solid #b9bec7; background: #fff; color: #1f2937; }
+      /* ปิดรอบเป็นงานที่ย้อนกลับไม่ได้ ต้องดูไม่เหมือนปุ่มธรรมดา */
+      .d8 .a--danger { border-color: #b42318; color: #b42318; }
+      .d8 .tools { display: flex; align-items: center; gap: 6px; padding: 0 12px; border-bottom: 1px solid #e5e7eb; }
+      .d8 .t { font-size: 12px; padding: 3px 9px; border: 1px solid #d5d8dd; background: #fff; }
+      .d8 .t.on { background: #1f2937; color: #fff; border-color: #1f2937; }
+      .d8 .search { margin-left: auto; font-size: 12px; border: 1px solid #d5d8dd; padding: 3px 9px; width: 180px; color: #9ca3af; }
+      .d8 table { font-size: 12.5px; }
+      .d8 th { position: sticky; top: 0; background: #f9fafb; padding: 5px 8px; border-bottom: 1px solid #d5d8dd; border-right: 1px solid #eceef1; font-size: 11.5px; }
+      .d8 td { padding: 4px 8px; border-bottom: 1px solid #f1f2f4; border-right: 1px solid #f6f7f8; }
+      .d8 tr:hover td { background: #fffbeb; }
+    </style>
+    <div class="top">
+      <b>CC-260731-WH</b><span>คลังสินค้า</span><span>ปิดยอด</span><span>กำลังนับ</span><span>910 / 6,696 SKU</span>
+      <span class="acts"><span class="a">ส่งออก Excel</span><span class="a a--danger">ปิดรอบ</span></span>
+    </div>
+    <div class="tools">
+      <span class="t on">ทั้งหมด</span><span class="t">ขาด 14</span><span class="t">เกิน 3</span><span class="t">ต้องตรวจ 1</span><span class="t">ตรง 892</span>
+      <span class="search">ค้นหา SKU / ชื่อ / บาร์โค้ด</span>
+    </div>
+    <table>
+      <tr><th>SKU</th><th>ชื่อสินค้า</th><th>ตำแหน่ง</th><th>หน่วยฐาน</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th><th>ผู้นับ</th><th>เวลา</th></tr>
+      <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td>A-12-03</td><td>ขวด</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td><td>EMP-001</td><td>14:51</td></tr>
+      <tr><td>100016</td><td>Air-X 120 mg</td><td>B-04-11</td><td>แผง</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td><td>EMP-001</td><td>14:53</td></tr>
+      <tr><td>100018</td><td>Air-X Lemon</td><td>B-04-12</td><td>แผง</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td><td>EMP-901</td><td>14:55</td></tr>
+      <tr><td>100211</td><td>พลาสเตอร์ยา</td><td>C-01-07</td><td>กล่อง</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td><td>EMP-901</td><td>15:02</td></tr>
+      <tr><td>100340</td><td>สำลีก้อน 50 g</td><td>C-02-02</td><td>ห่อ</td><td class="num">210</td><td class="num">210</td><td class="num ok">0</td><td class="num">—</td><td>EMP-001</td><td>15:04</td></tr>
+      <tr><td>100512</td><td>แอลกอฮอล์ 450 ml</td><td>D-08-01</td><td>ขวด</td><td class="num">64</td><td class="num">64</td><td class="num ok">0</td><td class="num">—</td><td>EMP-902</td><td>15:09</td></tr>
+      <tr><td>100613</td><td>ผ้าก๊อซ 2"×2"</td><td>D-08-04</td><td>ห่อ</td><td class="num">156</td><td class="num">156</td><td class="num ok">0</td><td class="num">—</td><td>EMP-902</td><td>15:11</td></tr>
+      <tr><td>100722</td><td>เบตาดีน 15 ml</td><td>E-01-01</td><td>ขวด</td><td class="num">48</td><td class="num">48</td><td class="num ok">0</td><td class="num">—</td><td>EMP-001</td><td>15:14</td></tr>
+      <tr><td>100810</td><td>พาราเซตามอล 500</td><td>E-02-06</td><td>แผง</td><td class="num">320</td><td class="num">320</td><td class="num ok">0</td><td class="num">—</td><td>EMP-901</td><td>15:18</td></tr>
+      <tr><td>100915</td><td>วิตามินซี 1000</td><td>E-03-02</td><td>ขวด</td><td class="num">72</td><td class="num">72</td><td class="num ok">0</td><td class="num">—</td><td>EMP-902</td><td>15:22</td></tr>
+      <tr><td>101003</td><td>ยาหม่องตราถ้วยทอง</td><td>F-01-09</td><td>ตลับ</td><td class="num">95</td><td class="num">95</td><td class="num ok">0</td><td class="num">—</td><td>EMP-001</td><td>15:25</td></tr>
+      <tr><td>101120</td><td>น้ำเกลือล้างแผล</td><td>F-02-03</td><td>ขวด</td><td class="num">40</td><td class="num">40</td><td class="num ok">0</td><td class="num">—</td><td>EMP-901</td><td>15:29</td></tr>
+    </table>
+  </div></div>
+</div>
+
+<!-- ═══ 9 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">09</span><span class="item__name">มืด · ห้องคุม</span></div>
+  <p class="item__why">พื้นเข้ม ตัวเลข mono เด่น — เหมาะกับจอที่เปิดค้างทั้งวัน ตาไม่ล้า</p>
+  <div class="frame"><div class="screen d9">
+    <style>
+      .d9 { height: 100%; background: #0e1116; color: #c9d1d9; display: grid; grid-template-columns: 210px 1fr; }
+      .d9 aside { border-right: 1px solid #1c2129; padding: 18px 0; }
+      .d9 .b { padding: 0 18px 18px; color: #58e0a8; font-family: var(--mono); font-size: 15px; letter-spacing: .04em; }
+      .d9 nav a { display: block; padding: 9px 18px; color: #6e7a89; font-size: 14px; text-decoration: none; }
+      .d9 nav a.on { color: #e6edf3; background: #161b22; box-shadow: inset 2px 0 0 #58e0a8; }
+      .d9 main { padding: 22px 26px; overflow: hidden; }
+      .d9 h2 { margin: 0 0 3px; font-size: 21px; color: #e6edf3; font-family: var(--mono); letter-spacing: .02em; }
+      .d9 .sub { color: #6e7a89; font-size: 13px; margin-bottom: 22px; }
+      .d9 .g { display: grid; grid-template-columns: repeat(4, 1fr); gap: 1px; background: #1c2129; border: 1px solid #1c2129; margin-bottom: 22px; }
+      .d9 .g div { background: #0e1116; padding: 14px 16px; }
+      .d9 .g b { display: block; font-size: 30px; font-family: var(--mono); line-height: 1.1; }
+      .d9 .g span { font-size: 11.5px; color: #6e7a89; letter-spacing: .06em; text-transform: uppercase; }
+      .d9 th { padding: 8px 10px; font-size: 11.5px; color: #6e7a89; letter-spacing: .06em; text-transform: uppercase; border-bottom: 1px solid #1c2129; }
+      .d9 td { padding: 9px 10px; border-bottom: 1px solid #161b22; font-size: 13.5px; }
+      .d9 .neg { color: #ff7b72; } .d9 .pos { color: #79c0ff; } .d9 .ok { color: #58e0a8; }
+    </style>
+    <aside>
+      <div class="b">◆ CYCLE COUNT</div>
+      <nav><a class="on">รอบนับ</a><a>สินค้า</a><a>รายงาน</a><a>นำเข้า</a><a>ผู้ใช้</a></nav>
+    </aside>
+    <main>
+      <h2>CC-260731-WH</h2>
+      <div class="sub">คลังสินค้า · ปิดยอด · ตัดยอด 31 ก.ค. 14:32</div>
+      <div class="g">
+        <div><b class="ok">892</b><span>ตรง</span></div>
+        <div><b class="neg">14</b><span>ขาด</span></div>
+        <div><b class="pos">3</b><span>เกิน</span></div>
+        <div><b>−3,065</b><span>มูลค่า</span></div>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td></tr>
+      </table>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 10 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">10</span><span class="item__name">แยกตามสถานะ</span></div>
+  <p class="item__why">ขาด / เกิน / ต้องตรวจ อยู่คนละคอลัมน์ — เห็นทันทีว่ามีอะไรต้องจัดการ ไม่ต้องกรอง</p>
+  <div class="frame"><div class="screen d10">
+    <style>
+      .d10 { height: 100%; background: #f4f5f7; display: grid; grid-template-rows: 56px 1fr; }
+      .d10 header { background: #fff; display: flex; align-items: center; gap: 16px; padding: 0 24px; border-bottom: 1px solid #dfe1e6; }
+      .d10 header b { font-size: 16px; }
+      .d10 header span { font-size: 13px; color: #6b778c; }
+      .d10 .cols { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; padding: 18px 24px; overflow: hidden; }
+      .d10 .col { background: #ebecf0; padding: 12px; }
+      .d10 .col h3 { margin: 0 0 11px; font-size: 12.5px; letter-spacing: .06em; text-transform: uppercase; color: #5e6c84; display: flex; justify-content: space-between; }
+      .d10 .k { background: #fff; padding: 11px 13px; margin-bottom: 9px; box-shadow: 0 1px 1px rgba(9,30,66,.2); }
+      .d10 .k b { display: block; font-size: 14px; }
+      .d10 .k span { font-size: 12px; color: #6b778c; }
+      .d10 .k .d { float: right; font-family: var(--mono); font-size: 17px; font-weight: 700; }
+      .d10 .col--s h3 { color: #bf2600; } .d10 .col--o h3 { color: #0052cc; } .d10 .col--r h3 { color: #974f0c; }
+    </style>
+    <header><b>CC-260731-WH</b><span>คลังสินค้า · ปิดยอด · กำลังนับ</span><span style="margin-left:auto">ตรงแล้ว 892 รายการ</span></header>
+    <div class="cols">
+      <div class="col col--s"><h3><span>ขาด</span><span>14</span></h3>
+        <div class="k"><span class="d neg">−12</span><b>ยาแก้ไอ 60 ml</b><span>100098 · A-12-03</span></div>
+        <div class="k"><span class="d neg">−5</span><b>Air-X 120 mg</b><span>100016 · B-04-11</span></div>
+        <div class="k"><span class="d neg">−3</span><b>พลาสเตอร์ยา</b><span>100211 · C-01-07</span></div>
+        <div class="k"><span class="d neg">−2</span><b>เบตาดีน 15 ml</b><span>100722 · E-01-01</span></div>
+      </div>
+      <div class="col col--o"><h3><span>เกิน</span><span>3</span></h3>
+        <div class="k"><span class="d pos">+3</span><b>Air-X Lemon</b><span>100018 · B-04-12</span></div>
+        <div class="k"><span class="d pos">+2</span><b>วิตามินซี 1000</b><span>100915 · E-03-02</span></div>
+        <div class="k"><span class="d pos">+1</span><b>ยาหม่องตราถ้วยทอง</b><span>101003 · F-01-09</span></div>
+      </div>
+      <div class="col col--r"><h3><span>ต้องตรวจ</span><span>1</span></h3>
+        <div class="k"><span class="d">?</span><b>ไม่พบใน master</b><span>บาร์โค้ด 8850123456789</span></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 11 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">11</span><span class="item__name">ค้นหานำ</span></div>
+  <p class="item__why">ช่องค้นเป็นพระเอกกลางจอ — ดีถ้างานหลักคือ &ldquo;ตามหา SKU ตัวนี้&rdquo; มากกว่าไล่ดูทั้งรายการ</p>
+  <div class="frame"><div class="screen d11">
+    <style>
+      .d11 { height: 100%; background: #fff; display: grid; grid-template-rows: 52px 1fr; }
+      .d11 header { display: flex; align-items: center; gap: 20px; padding: 0 26px; border-bottom: 1px solid #e8eaed; font-size: 14px; color: #5f6368; }
+      .d11 header b { color: #202124; font-size: 15px; }
+      .d11 .body { padding: 34px 26px; max-width: 880px; margin: 0 auto; width: 100%; }
+      .d11 .q { display: flex; align-items: center; gap: 12px; border: 1px solid #dadce0; border-radius: 26px; padding: 13px 22px; box-shadow: 0 1px 5px rgba(32,33,36,.1); }
+      .d11 .q span { color: #9aa0a6; font-size: 17px; }
+      .d11 .hint { text-align: center; font-size: 13px; color: #80868b; margin: 12px 0 26px; }
+      .d11 .res { border-top: 1px solid #e8eaed; }
+      .d11 .r { display: flex; align-items: center; gap: 16px; padding: 13px 4px; border-bottom: 1px solid #f1f3f4; }
+      .d11 .r b { font-size: 15px; }
+      .d11 .r i { font-style: normal; font-size: 12.5px; color: #5f6368; display: block; }
+      .d11 .r .d { margin-left: auto; font-family: var(--mono); font-size: 19px; font-weight: 700; }
+      .d11 .sc { font-size: 12px; color: #5f6368; background: #f1f3f4; padding: 3px 9px; border-radius: 11px; }
+    </style>
+    <header><b>Cycle Count</b><span>รอบนับ</span><span>สินค้า</span><span>รายงาน</span><span style="margin-left:auto">แอดมินคลังสินค้า</span></header>
+    <div class="body">
+      <div class="q"><span>⌕</span><span style="color:#202124">ยาแก้ไอ</span></div>
+      <div class="hint">ค้นด้วย SKU · ชื่อสินค้า · บาร์โค้ด · ตำแหน่งชั้นวาง</div>
+      <div class="res">
+        <div class="r"><div><b>ยาแก้ไอ 60 ml</b><i>100098 · A-12-03 · ขวด</i></div><span class="sc">CC-260731-WH</span><span class="d neg">−12</span></div>
+        <div class="r"><div><b>ยาแก้ไอผสมมะขามป้อม</b><i>100104 · A-12-05 · ขวด</i></div><span class="sc">CC-260731-WH</span><span class="d ok">0</span></div>
+        <div class="r"><div><b>ยาแก้ไอน้ำดำ 120 ml</b><i>100119 · A-13-01 · ขวด</i></div><span class="sc">CC-260731-WH</span><span class="d ok">0</span></div>
+        <div class="r"><div><b>ยาแก้ไอ 60 ml</b><i>100098 · รอบก่อนหน้า</i></div><span class="sc">CC-260715-WH</span><span class="d neg">−4</span></div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 12 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">12</span><span class="item__name">ขั้นตอนเปิดรอบ</span></div>
+  <p class="item__why">งานที่พลาดไม่ได้อย่างการถ่าย snapshot บังคับให้เดินทีละขั้น — ลดโอกาสตั้งค่าผิด</p>
+  <div class="frame"><div class="screen d12">
+    <style>
+      .d12 { height: 100%; background: #fbfbfc; display: grid; grid-template-rows: 54px 1fr; }
+      .d12 header { background: #fff; border-bottom: 1px solid #e5e7eb; display: flex; align-items: center; padding: 0 26px; font-weight: 700; }
+      .d12 .body { display: grid; grid-template-columns: 250px 1fr; overflow: hidden; }
+      .d12 .steps { padding: 26px 22px; border-right: 1px solid #e5e7eb; }
+      .d12 .sp { display: flex; gap: 12px; padding-bottom: 22px; position: relative; }
+      .d12 .sp::before { content: ''; position: absolute; left: 13px; top: 28px; bottom: 0; width: 1px; background: #e5e7eb; }
+      .d12 .sp:last-child::before { display: none; }
+      .d12 .n { width: 27px; height: 27px; border-radius: 50%; display: grid; place-items: center; font-size: 13px; background: #e5e7eb; color: #6b7280; flex: none; }
+      .d12 .sp.done .n { background: #16a34a; color: #fff; }
+      .d12 .sp.now .n { background: #1e293b; color: #fff; }
+      .d12 .sp b { display: block; font-size: 14px; }
+      .d12 .sp span { font-size: 12.5px; color: #6b7280; }
+      .d12 main { padding: 28px 34px; }
+      .d12 h2 { margin: 0 0 20px; font-size: 20px; }
+      .d12 .f { margin-bottom: 17px; max-width: 420px; }
+      .d12 .f label { display: block; font-size: 13px; margin-bottom: 5px; color: #374151; }
+      .d12 .f .in { border: 1px solid #d1d5db; padding: 8px 12px; font-size: 14px; background: #fff; color: #111827; }
+      .d12 .radio { display: flex; gap: 10px; }
+      .d12 .radio div { border: 1px solid #d1d5db; padding: 10px 14px; font-size: 13.5px; background: #fff; flex: 1; }
+      .d12 .radio div.on { border-color: #1e293b; box-shadow: inset 0 0 0 1px #1e293b; }
+      .d12 .radio i { font-style: normal; display: block; font-size: 12px; color: #6b7280; }
+      .d12 .warn { background: #fffbeb; border-left: 3px solid #d97706; padding: 10px 13px; font-size: 13px; color: #78350f; max-width: 460px; margin-top: 20px; }
+      .d12 .act { margin-top: 24px; display: flex; gap: 10px; }
+      .d12 .act span { padding: 9px 20px; font-size: 14px; border: 1px solid #d1d5db; background: #fff; }
+      .d12 .act .go { background: #1e293b; color: #fff; border-color: #1e293b; }
+    </style>
+    <header>เปิดรอบนับใหม่</header>
+    <div class="body">
+      <div class="steps">
+        <div class="sp done"><span class="n">✓</span><div><b>เลือกสาขา</b><span>คลังสินค้า</span></div></div>
+        <div class="sp now"><span class="n">2</span><div><b>ตั้งค่ารอบ</b><span>รหัส · โหมด</span></div></div>
+        <div class="sp"><span class="n">3</span><div><b>ถ่ายยอดตั้งต้น</b><span>sync + snapshot</span></div></div>
+        <div class="sp"><span class="n">4</span><div><b>ตรวจแล้วเปิด</b><span></span></div></div>
+      </div>
+      <main>
+        <h2>ตั้งค่ารอบนับ</h2>
+        <div class="f"><label>รหัสรอบ</label><div class="in">CC-260804-WH</div></div>
+        <div class="f"><label>โหมดการนับ</label>
+          <div class="radio">
+            <div class="on">● ปิดยอด<i>คนนับไม่เห็นยอดระบบ</i></div>
+            <div>○ รอบทวน<i>เห็นผลต่างทุกแถว</i></div>
+          </div>
+        </div>
+        <div class="warn">ผู้ตรวจสอบบัญชีบังคับให้รอบแรกเป็นปิดยอด เลือกรอบทวนได้เฉพาะตอนไปยืนยันตัวที่มีผลต่าง</div>
+        <div class="act"><span>ย้อนกลับ</span><span class="go">ถัดไป</span></div>
+      </main>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 13 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">13</span><span class="item__name">แผงบริบทขวา</span></div>
+  <p class="item__why">คลิกแถวไหนรายละเอียดเด้งขวา ไม่ต้องเปลี่ยนหน้า — ดีเวลาต้องไล่ตรวจทีละตัว</p>
+  <div class="frame"><div class="screen d13">
+    <style>
+      .d13 { height: 100%; background: #fff; display: grid; grid-template-columns: 190px 1fr 300px; font-size: 14px; }
+      .d13 aside { background: #f8f9fb; border-right: 1px solid #e6e9ef; padding: 18px 0; }
+      .d13 aside b { display: block; padding: 0 18px 16px; font-size: 15px; }
+      .d13 aside a { display: block; padding: 8px 18px; color: #5b6472; text-decoration: none; font-size: 14px; }
+      .d13 aside a.on { background: #eef1f6; color: #16202e; font-weight: 700; }
+      .d13 main { padding: 20px 22px; overflow: hidden; }
+      .d13 h2 { margin: 0 0 16px; font-size: 19px; }
+      .d13 th { padding: 7px 9px; font-size: 12px; color: #7b8698; border-bottom: 1px solid #e6e9ef; }
+      .d13 td { padding: 8px 9px; border-bottom: 1px solid #f2f4f7; font-size: 13.5px; }
+      .d13 tr.sel td { background: #fff7ed; box-shadow: inset 3px 0 0 #ea8a2b; }
+      .d13 .panel { border-left: 1px solid #e6e9ef; padding: 20px 20px; background: #fcfcfd; }
+      .d13 .panel h3 { margin: 0 0 4px; font-size: 16px; }
+      .d13 .panel .id { font-family: var(--mono); font-size: 12.5px; color: #7b8698; margin-bottom: 18px; }
+      .d13 .kv { font-size: 13px; margin-bottom: 9px; display: flex; justify-content: space-between; border-bottom: 1px dotted #e0e4eb; padding-bottom: 7px; }
+      .d13 .kv span { color: #7b8698; }
+      .d13 .big { font-family: var(--mono); font-size: 34px; font-weight: 700; margin: 14px 0 4px; }
+      .d13 .hist { margin-top: 18px; font-size: 12.5px; color: #7b8698; }
+      .d13 .hist div { padding: 5px 0; border-bottom: 1px solid #f0f2f5; }
+    </style>
+    <aside><b>Cycle Count</b><a class="on">รอบนับ</a><a>สินค้า</a><a>รายงาน</a><a>นำเข้า</a><a>ผู้ใช้</a></aside>
+    <main>
+      <h2>CC-260731-WH · ผลต่าง</h2>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th></tr>
+        <tr class="sel"><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td></tr>
+        <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td></tr>
+        <tr><td>100722</td><td>เบตาดีน 15 ml</td><td class="num">48</td><td class="num">46</td><td class="num neg">−2</td></tr>
+      </table>
+    </main>
+    <div class="panel">
+      <h3>ยาแก้ไอ 60 ml</h3>
+      <div class="id">100098 · A-12-03</div>
+      <div class="big neg">−12</div>
+      <div style="font-size:12.5px;color:#7b8698;margin-bottom:16px">ขวด · มูลค่า −2,400 บาท</div>
+      <div class="kv"><span>ยอดตั้งต้น</span><b>120</b></div>
+      <div class="kv"><span>นับได้</span><b>108</b></div>
+      <div class="kv"><span>ผู้นับ</span><b>EMP-001</b></div>
+      <div class="kv"><span>เวลานับ</span><b>31 ก.ค. 14:51</b></div>
+      <div class="hist">
+        <b style="color:#16202e">รอบก่อนหน้า</b>
+        <div>CC-260715-WH · −4</div>
+        <div>CC-260615-WH · 0</div>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 14 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">14</span><span class="item__name">ไทม์ไลน์รอบนับ</span></div>
+  <p class="item__why">เรียงตามเวลา เห็นประวัติการนับของคลังนี้ทั้งปี — ตอบผู้ตรวจสอบได้ว่านับถี่แค่ไหน</p>
+  <div class="frame"><div class="screen d14">
+    <style>
+      .d14 { height: 100%; background: #fff; display: grid; grid-template-columns: 200px 1fr; }
+      .d14 aside { background: #16324a; color: #b6c7d6; padding: 20px 0; }
+      .d14 aside b { display: block; padding: 0 20px 18px; color: #fff; }
+      .d14 aside a { display: block; padding: 9px 20px; color: #8fa6ba; text-decoration: none; font-size: 14px; }
+      .d14 aside a.on { background: #21455f; color: #fff; }
+      .d14 main { padding: 24px 30px; overflow: hidden; }
+      .d14 h2 { margin: 0 0 22px; font-size: 20px; }
+      .d14 .tl { position: relative; padding-left: 26px; }
+      .d14 .tl::before { content: ''; position: absolute; left: 7px; top: 6px; bottom: 0; width: 2px; background: #e2e8f0; }
+      .d14 .ev { position: relative; padding-bottom: 20px; }
+      .d14 .ev::before { content: ''; position: absolute; left: -23px; top: 6px; width: 12px; height: 12px; border-radius: 50%; background: #fff; border: 2px solid #94a3b8; }
+      .d14 .ev.live::before { border-color: #16a34a; background: #16a34a; }
+      .d14 .d { font-size: 12px; color: #94a3b8; }
+      .d14 .card { border: 1px solid #e2e8f0; padding: 12px 15px; margin-top: 5px; display: flex; align-items: center; gap: 18px; }
+      .d14 .card b { font-size: 14.5px; }
+      .d14 .card span { font-size: 12.5px; color: #64748b; }
+      .d14 .card .r { margin-left: auto; text-align: right; }
+      .d14 .card .r b { font-family: var(--mono); font-size: 17px; }
+    </style>
+    <aside><b>Cycle Count</b><a>ภาพรวม</a><a class="on">ไทม์ไลน์</a><a>สินค้า</a><a>ผู้ใช้</a></aside>
+    <main>
+      <h2>ประวัติการนับ — คลังสินค้า</h2>
+      <div class="tl">
+        <div class="ev live"><div class="d">31 กรกฎาคม 2569 · กำลังนับ</div>
+          <div class="card"><div><b>CC-260731-WH</b><span> ปิดยอด · 910/6,696 SKU</span></div><div class="r"><b class="neg">−3,065</b><span> บาท</span></div></div></div>
+        <div class="ev"><div class="d">15 กรกฎาคม 2569 · ปิดแล้ว</div>
+          <div class="card"><div><b>CC-260715-WH</b><span> ปิดยอด · 6,696 SKU</span></div><div class="r"><b class="neg">−8,120</b><span> บาท</span></div></div></div>
+        <div class="ev"><div class="d">1 กรกฎาคม 2569 · ปิดแล้ว</div>
+          <div class="card"><div><b>CC-260701-WH-R1</b><span> รอบทวน · 42 SKU</span></div><div class="r"><b class="pos">+430</b><span> บาท</span></div></div></div>
+        <div class="ev"><div class="d">15 มิถุนายน 2569 · ปิดแล้ว</div>
+          <div class="card"><div><b>CC-260615-WH</b><span> ปิดยอด · 6,540 SKU</span></div><div class="r"><b class="neg">−5,890</b><span> บาท</span></div></div></div>
+      </div>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 15 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">15</span><span class="item__name">ตัวเลขใหญ่ อ่านจากไกล</span></div>
+  <p class="item__why">สำหรับจอที่แขวนในคลังให้ทีมเห็นความคืบหน้า — อ่านจากระยะ 3 เมตรได้</p>
+  <div class="frame"><div class="screen d15">
+    <style>
+      .d15 { height: 100%; background: #101418; color: #fff; padding: 34px 40px; }
+      .d15 .h { display: flex; align-items: baseline; gap: 18px; border-bottom: 1px solid #262d35; padding-bottom: 18px; margin-bottom: 30px; }
+      .d15 .h b { font-size: 34px; font-family: var(--mono); }
+      .d15 .h span { color: #7b8794; font-size: 17px; }
+      .d15 .h .live { margin-left: auto; background: #16a34a; padding: 5px 16px; font-size: 15px; }
+      .d15 .g { display: grid; grid-template-columns: repeat(3, 1fr); gap: 22px; margin-bottom: 32px; }
+      .d15 .g div b { display: block; font-size: 78px; font-family: var(--mono); line-height: 1; font-weight: 700; }
+      .d15 .g div span { font-size: 17px; color: #7b8794; letter-spacing: .1em; }
+      .d15 .prog span { display: flex; justify-content: space-between; font-size: 18px; color: #a4b0bd; margin-bottom: 9px; }
+      .d15 .prog .track { height: 26px; background: #1d242c; }
+      .d15 .prog .track i { display: block; height: 100%; background: #16a34a; width: 13.6%; }
+      .d15 .who { margin-top: 30px; display: flex; gap: 34px; font-size: 18px; color: #a4b0bd; }
+      .d15 .who b { color: #fff; font-family: var(--mono); }
+    </style>
+    <div class="h"><b>CC-260731-WH</b><span>คลังสินค้า · ปิดยอด</span><span class="live">กำลังนับ</span></div>
+    <div class="g">
+      <div><b style="color:#4ade80">892</b><span>ตรง</span></div>
+      <div><b style="color:#f87171">14</b><span>ขาด</span></div>
+      <div><b style="color:#60a5fa">3</b><span>เกิน</span></div>
+    </div>
+    <div class="prog">
+      <span><span>ความคืบหน้า</span><span>910 / 6,696 SKU</span></span>
+      <div class="track"><i></i></div>
+    </div>
+    <div class="who">
+      <div>พนักงานนับ 1 <b>412</b></div>
+      <div>ทดสอบ ก <b>289</b></div>
+      <div>ทดสอบ ข <b>209</b></div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 16 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">16</span><span class="item__name">แท็บในหน้า</span></div>
+  <p class="item__why">รอบนับหนึ่งมีหลายมุมมอง (ผลต่าง / ผู้นับ / ยอดตั้งต้น / ประวัติ) แยกด้วยแท็บ ไม่ต้องมีเมนูลึก</p>
+  <div class="frame"><div class="screen d16">
+    <style>
+      .d16 { height: 100%; background: #fff; }
+      .d16 .top { background: #5b21b6; color: #fff; padding: 0 28px; height: 52px; display: flex; align-items: center; gap: 24px; }
+      .d16 .top b { font-size: 16px; }
+      .d16 .top a { color: #ddd0f7; font-size: 14px; text-decoration: none; }
+      .d16 .top a.on { color: #fff; font-weight: 700; }
+      .d16 .hd { padding: 20px 28px 0; }
+      .d16 .hd h2 { margin: 0 0 3px; font-size: 22px; }
+      .d16 .hd .sub { color: #6b7280; font-size: 13.5px; margin-bottom: 16px; }
+      .d16 .tabs { display: flex; gap: 4px; border-bottom: 1px solid #e5e7eb; }
+      .d16 .tabs span { padding: 9px 17px; font-size: 14px; color: #6b7280; }
+      .d16 .tabs span.on { color: #5b21b6; box-shadow: inset 0 -2px 0 #5b21b6; font-weight: 700; }
+      .d16 .body { padding: 20px 28px; }
+      .d16 .sum { display: flex; gap: 26px; margin-bottom: 18px; }
+      .d16 .sum div b { font-family: var(--mono); font-size: 25px; display: block; line-height: 1.2; }
+      .d16 .sum div span { font-size: 12px; color: #6b7280; }
+      .d16 th { padding: 8px 10px; font-size: 12.5px; color: #6b7280; border-bottom: 1px solid #e5e7eb; }
+      .d16 td { padding: 9px 10px; border-bottom: 1px solid #f3f4f6; font-size: 14px; }
+    </style>
+    <div class="top"><b>Cycle Count</b><a class="on">รอบนับ</a><a>สินค้า</a><a>รายงาน</a><a>ผู้ใช้</a><span style="margin-left:auto;font-size:13px;color:#ddd0f7">แอดมินคลังสินค้า</span></div>
+    <div class="hd">
+      <h2>CC-260731-WH</h2>
+      <div class="sub">คลังสินค้า · ปิดยอด · ตัดยอด 31 ก.ค. 14:32</div>
+      <div class="tabs"><span class="on">ผลต่าง</span><span>ยอดตั้งต้น</span><span>รายการที่นับ</span><span>ผู้นับ</span><span>ตั้งค่า</span></div>
+    </div>
+    <div class="body">
+      <div class="sum">
+        <div><b class="ok">892</b><span>ตรง</span></div>
+        <div><b class="neg">14</b><span>ขาด</span></div>
+        <div><b class="pos">3</b><span>เกิน</span></div>
+        <div><b>1</b><span>ต้องตรวจ</span></div>
+        <div><b class="neg">−3,065</b><span>มูลค่า (บาท)</span></div>
+      </div>
+      <table>
+        <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+        <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+        <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+        <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+      </table>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 17 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">17</span><span class="item__name">แถบสีสถานะ</span></div>
+  <p class="item__why">แน่นเหมือนข้อ 8 แต่มีแถบสีนำสายตา — กวาดตาเจอตัวที่ผิดได้โดยไม่ต้องอ่านตัวเลข</p>
+  <div class="frame"><div class="screen d17">
+    <style>
+      .d17 { height: 100%; background: #fff; display: grid; grid-template-columns: 56px 1fr; font-size: 13.5px; }
+      .d17 .r { background: #fafafa; border-right: 1px solid #e7e7e7; display: flex; flex-direction: column; align-items: center; padding: 12px 0; gap: 5px; }
+      .d17 .r i { width: 34px; height: 34px; display: grid; place-items: center; font-style: normal; color: #999; }
+      .d17 .r i.on { background: #111; color: #fff; }
+      .d17 main { overflow: hidden; }
+      .d17 .hd { padding: 16px 20px 12px; display: flex; align-items: center; gap: 14px; border-bottom: 1px solid #ececec; }
+      .d17 .hd b { font-size: 17px; }
+      .d17 .hd span { font-size: 12.5px; color: #888; }
+      .d17 .rows { padding: 6px 0; }
+      .d17 .row { display: grid; grid-template-columns: 5px 90px 1fr 78px 78px 82px 96px; align-items: center; gap: 12px; padding: 0 20px 0 0; height: 38px; border-bottom: 1px solid #f4f4f4; }
+      .d17 .row .st { height: 100%; }
+      .d17 .row--s .st { background: #d64541; } .d17 .row--o .st { background: #2f74b5; }
+      .d17 .row--k .st { background: #e8e8e8; } .d17 .row--q .st { background: #e29b2b; }
+      .d17 .hdr { font-size: 11.5px; color: #999; letter-spacing: .05em; text-transform: uppercase; height: 30px; border-bottom: 1px solid #ececec; }
+      .d17 .sku { font-family: var(--mono); font-size: 12.5px; }
+    </style>
+    <div class="r"><i class="on">▤</i><i>◫</i><i>◔</i><i>↥</i></div>
+    <main>
+      <div class="hd"><b>CC-260731-WH</b><span>คลังสินค้า · ปิดยอด · กำลังนับ</span><span style="margin-left:auto">910 / 6,696</span></div>
+      <div class="rows">
+        <div class="row hdr"><span></span><span>SKU</span><span>ชื่อสินค้า</span><span class="num">ตั้งต้น</span><span class="num">นับได้</span><span class="num">ผลต่าง</span><span class="num">มูลค่า</span></div>
+        <div class="row row--s"><span class="st"></span><span class="sku">100098</span><span>ยาแก้ไอ 60 ml</span><span class="num">120</span><span class="num">108</span><span class="num neg">−12</span><span class="num neg">−2,400</span></div>
+        <div class="row row--s"><span class="st"></span><span class="sku">100016</span><span>Air-X 120 mg</span><span class="num">62</span><span class="num">57</span><span class="num neg">−5</span><span class="num neg">−1,250</span></div>
+        <div class="row row--o"><span class="st"></span><span class="sku">100018</span><span>Air-X Lemon</span><span class="num">40</span><span class="num">43</span><span class="num pos">+3</span><span class="num pos">+720</span></div>
+        <div class="row row--s"><span class="st"></span><span class="sku">100211</span><span>พลาสเตอร์ยา</span><span class="num">88</span><span class="num">85</span><span class="num neg">−3</span><span class="num neg">−135</span></div>
+        <div class="row row--q"><span class="st"></span><span class="sku">—</span><span>ไม่พบใน master · 8850123456789</span><span class="num">—</span><span class="num">2</span><span class="num">?</span><span class="num">—</span></div>
+        <div class="row row--k"><span class="st"></span><span class="sku">100340</span><span>สำลีก้อน 50 g</span><span class="num">210</span><span class="num">210</span><span class="num ok">0</span><span class="num">—</span></div>
+        <div class="row row--k"><span class="st"></span><span class="sku">100512</span><span>แอลกอฮอล์ 450 ml</span><span class="num">64</span><span class="num">64</span><span class="num ok">0</span><span class="num">—</span></div>
+        <div class="row row--k"><span class="st"></span><span class="sku">100613</span><span>ผ้าก๊อซ 2"×2"</span><span class="num">156</span><span class="num">156</span><span class="num ok">0</span><span class="num">—</span></div>
+        <div class="row row--k"><span class="st"></span><span class="sku">100722</span><span>เบตาดีน 15 ml</span><span class="num">48</span><span class="num">48</span><span class="num ok">0</span><span class="num">—</span></div>
+      </div>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 18 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">18</span><span class="item__name">สองแถบบน</span></div>
+  <p class="item__why">แถบแบรนด์ + แถบบริบทของรอบที่เปิดอยู่ ค้างบนเสมอ — ไม่มีทางลืมว่ากำลังดูรอบไหน</p>
+  <div class="frame"><div class="screen d18">
+    <style>
+      .d18 { height: 100%; background: #f7f8f9; }
+      .d18 .b1 { background: #0b3d2c; color: #fff; height: 44px; display: flex; align-items: center; gap: 22px; padding: 0 24px; font-size: 14px; }
+      .d18 .b1 b { font-size: 15px; }
+      .d18 .b1 a { color: #9dc9b8; text-decoration: none; }
+      .d18 .b1 a.on { color: #fff; }
+      .d18 .b2 { background: #fff; border-bottom: 1px solid #dfe3e6; height: 62px; display: flex; align-items: center; gap: 16px; padding: 0 24px; }
+      .d18 .b2 b { font-size: 19px; }
+      .d18 .tag { font-size: 12px; padding: 3px 10px; border: 1px solid #cfd6da; color: #4b5a63; }
+      .d18 .tag--live { background: #0b3d2c; color: #fff; border-color: #0b3d2c; }
+      .d18 .b2 .act { margin-left: auto; display: flex; gap: 8px; }
+      .d18 .b2 .act span { font-size: 13px; padding: 7px 15px; border: 1px solid #cfd6da; background: #fff; }
+      .d18 .body { padding: 20px 24px; }
+      .d18 .st { display: grid; grid-template-columns: repeat(5, 1fr); background: #fff; border: 1px solid #dfe3e6; margin-bottom: 18px; }
+      .d18 .st div { padding: 14px 16px; border-right: 1px solid #eef1f2; }
+      .d18 .st div:last-child { border-right: 0; }
+      .d18 .st b { display: block; font-family: var(--mono); font-size: 26px; line-height: 1.15; }
+      .d18 .st span { font-size: 12px; color: #6a777f; }
+      .d18 .panel { background: #fff; border: 1px solid #dfe3e6; }
+      .d18 th { padding: 9px 12px; font-size: 12.5px; color: #6a777f; border-bottom: 1px solid #dfe3e6; }
+      .d18 td { padding: 9px 12px; border-bottom: 1px solid #f2f4f5; font-size: 14px; }
+    </style>
+    <div class="b1"><b>Cycle Count</b><a class="on">รอบนับ</a><a>สินค้า</a><a>รายงาน</a><a>นำเข้า</a><a>ผู้ใช้</a><span style="margin-left:auto;color:#9dc9b8">แอดมินคลังสินค้า</span></div>
+    <div class="b2">
+      <b>CC-260731-WH</b><span class="tag">คลังสินค้า</span><span class="tag">ปิดยอด</span><span class="tag tag--live">กำลังนับ</span>
+      <span style="font-size:12.5px;color:#6a777f">ตัดยอด 31 ก.ค. 14:32</span>
+      <span class="act"><span>ส่งออก Excel</span><span>ปิดรอบ</span></span>
+    </div>
+    <div class="body">
+      <div class="st">
+        <div><b class="ok">892</b><span>ตรง</span></div>
+        <div><b class="neg">14</b><span>ขาด</span></div>
+        <div><b class="pos">3</b><span>เกิน</span></div>
+        <div><b>1</b><span>ต้องตรวจ</span></div>
+        <div><b class="neg">−3,065</b><span>มูลค่าผลต่าง</span></div>
+      </div>
+      <div class="panel">
+        <table>
+          <tr><th>SKU</th><th>ชื่อสินค้า</th><th>ตำแหน่ง</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+          <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td>A-12-03</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+          <tr><td>100016</td><td>Air-X 120 mg</td><td>B-04-11</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+          <tr><td>100018</td><td>Air-X Lemon</td><td>B-04-12</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+        </table>
+      </div>
+    </div>
+  </div></div>
+</div>
+
+<!-- ═══ 19 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">19</span><span class="item__name">แผงลอยบนพื้นสี</span></div>
+  <p class="item__why">การ์ดยกลอยบนพื้นสีเข้ม ดูทันสมัยกว่าแบบอื่น — แลกด้วยพื้นที่ตารางที่น้อยลง</p>
+  <div class="frame"><div class="screen d19">
+    <style>
+      .d19 { height: 100%; background: linear-gradient(160deg, #1a2f4b 0%, #24406a 100%); padding: 22px; display: grid; grid-template-columns: 196px 1fr; gap: 18px; }
+      .d19 aside { background: rgba(255,255,255,.07); border-radius: 10px; padding: 18px 0; }
+      .d19 aside b { display: block; padding: 0 18px 16px; color: #fff; font-size: 15px; }
+      .d19 aside a { display: block; padding: 9px 18px; color: #a8bdd8; text-decoration: none; font-size: 14px; }
+      .d19 aside a.on { background: rgba(255,255,255,.13); color: #fff; }
+      .d19 main { display: flex; flex-direction: column; gap: 14px; overflow: hidden; }
+      .d19 .hero { background: #fff; border-radius: 10px; padding: 18px 22px; display: flex; align-items: center; gap: 22px; }
+      .d19 .hero h2 { margin: 0; font-size: 20px; }
+      .d19 .hero span { font-size: 13px; color: #6b7a90; }
+      .d19 .hero .n { margin-left: auto; display: flex; gap: 24px; text-align: right; }
+      .d19 .hero .n div b { display: block; font-family: var(--mono); font-size: 24px; line-height: 1.1; }
+      .d19 .hero .n div span { font-size: 11.5px; }
+      .d19 .tbl { background: #fff; border-radius: 10px; padding: 16px 20px; flex: 1; }
+      .d19 th { padding: 8px 10px; font-size: 12.5px; color: #6b7a90; border-bottom: 1px solid #e8ecf1; }
+      .d19 td { padding: 9px 10px; border-bottom: 1px solid #f3f5f8; font-size: 14px; }
+    </style>
+    <aside><b>Cycle Count</b><a class="on">รอบนับ</a><a>สินค้า</a><a>รายงาน</a><a>นำเข้า</a><a>ผู้ใช้</a></aside>
+    <main>
+      <div class="hero">
+        <div><h2>CC-260731-WH</h2><span>คลังสินค้า · ปิดยอด · กำลังนับ</span></div>
+        <div class="n">
+          <div><b class="ok">892</b><span>ตรง</span></div>
+          <div><b class="neg">14</b><span>ขาด</span></div>
+          <div><b class="pos">3</b><span>เกิน</span></div>
+          <div><b class="neg">−3,065</b><span>มูลค่า</span></div>
+        </div>
+      </div>
+      <div class="tbl">
+        <table>
+          <tr><th>SKU</th><th>ชื่อสินค้า</th><th class="num">ตั้งต้น</th><th class="num">นับได้</th><th class="num">ผลต่าง</th><th class="num">มูลค่า</th></tr>
+          <tr><td>100098</td><td>ยาแก้ไอ 60 ml</td><td class="num">120</td><td class="num">108</td><td class="num neg">−12</td><td class="num neg">−2,400</td></tr>
+          <tr><td>100016</td><td>Air-X 120 mg</td><td class="num">62</td><td class="num">57</td><td class="num neg">−5</td><td class="num neg">−1,250</td></tr>
+          <tr><td>100018</td><td>Air-X Lemon</td><td class="num">40</td><td class="num">43</td><td class="num pos">+3</td><td class="num pos">+720</td></tr>
+          <tr><td>100211</td><td>พลาสเตอร์ยา</td><td class="num">88</td><td class="num">85</td><td class="num neg">−3</td><td class="num neg">−135</td></tr>
+        </table>
+      </div>
+    </main>
+  </div></div>
+</div>
+
+<!-- ═══ 20 ═══════════════════════════════════════════════════ -->
+<div class="item">
+  <div class="item__head"><span class="item__no">20</span><span class="item__name">แท็บเล็ตในคลัง</span></div>
+  <p class="item__why">ปุ่มใหญ่ แตะด้วยนิ้วได้ เมนูล่าง — ใช้บนแท็บเล็ตเดินดูหน้างานได้ ไม่ต้องกลับออฟฟิศ</p>
+  <div class="frame"><div class="screen d20">
+    <style>
+      .d20 { height: 100%; background: #f2f4f7; display: grid; grid-template-rows: 1fr 76px; }
+      .d20 .body { padding: 24px 28px; overflow: hidden; }
+      .d20 .hd { display: flex; align-items: center; gap: 14px; margin-bottom: 20px; }
+      .d20 .hd b { font-size: 24px; }
+      .d20 .hd span { font-size: 15px; color: #667085; }
+      .d20 .st { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
+      .d20 .st div { background: #fff; padding: 16px; border-radius: 8px; }
+      .d20 .st b { display: block; font-family: var(--mono); font-size: 34px; line-height: 1.1; }
+      .d20 .st span { font-size: 14px; color: #667085; }
+      .d20 .list { background: #fff; border-radius: 8px; overflow: hidden; }
+      .d20 .li { display: flex; align-items: center; gap: 16px; padding: 15px 18px; border-bottom: 1px solid #f1f3f6; }
+      .d20 .li b { font-size: 17px; display: block; }
+      .d20 .li span { font-size: 13.5px; color: #667085; }
+      .d20 .li .d { margin-left: auto; font-family: var(--mono); font-size: 26px; font-weight: 700; }
+      .d20 nav { background: #fff; border-top: 1px solid #e3e7ee; display: grid; grid-template-columns: repeat(4, 1fr); }
+      .d20 nav div { display: grid; place-items: center; gap: 2px; font-size: 13px; color: #8b95a5; }
+      .d20 nav div i { font-style: normal; font-size: 21px; }
+      .d20 nav div.on { color: #1a56db; }
+    </style>
+    <div class="body">
+      <div class="hd"><b>CC-260731-WH</b><span>คลังสินค้า · ปิดยอด</span></div>
+      <div class="st">
+        <div><b class="ok">892</b><span>ตรง</span></div>
+        <div><b class="neg">14</b><span>ขาด</span></div>
+        <div><b class="pos">3</b><span>เกิน</span></div>
+        <div><b>1</b><span>ตรวจ</span></div>
+      </div>
+      <div class="list">
+        <div class="li"><div><b>ยาแก้ไอ 60 ml</b><span>100098 · A-12-03</span></div><span class="d neg">−12</span></div>
+        <div class="li"><div><b>Air-X 120 mg</b><span>100016 · B-04-11</span></div><span class="d neg">−5</span></div>
+        <div class="li"><div><b>Air-X Lemon</b><span>100018 · B-04-12</span></div><span class="d pos">+3</span></div>
+        <div class="li"><div><b>พลาสเตอร์ยา</b><span>100211 · C-01-07</span></div><span class="d neg">−3</span></div>
+      </div>
+    </div>
+    <nav>
+      <div class="on"><i>▤</i>รอบนับ</div><div><i>◫</i>สินค้า</div><div><i>◔</i>รายงาน</div><div><i>☺</i>ผู้ใช้</div>
+    </nav>
+  </div></div>
+</div>
+
+</div><!-- /grid -->
+
+<div class="note" style="margin-top:40px">
+  <b>หมายเหตุ</b> — ทั้ง 20 แบบเป็น HTML/CSS ล้วน ไม่มี JavaScript ไม่ได้ต่อข้อมูลจริง
+  ตัวเลขในทุกแบบเป็นชุดสมมติชุดเดียวกันเพื่อให้เทียบกันได้
+</div>
+
+</div>
+</body>
+</html>
