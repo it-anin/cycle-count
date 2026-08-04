@@ -30,7 +30,7 @@ export const GET = withApi(async (req) => {
   const report = await sessionReport(id);
   if (!report) throw notFound('ไม่พบรอบนับนี้');
 
-  const { session, totals, rows } = report;
+  const { session, totals, rows, counterStats } = report;
 
   /*
    * แถวหัวเรื่องด้านบนก่อนตาราง — ผู้ตรวจสอบบัญชีต้องเห็นว่ายอดนี้คือ ณ เวลาไหน
@@ -76,6 +76,43 @@ export const GET = withApi(async (req) => {
 
   const book = XLSX.utils.book_new();
   XLSX.utils.book_append_sheet(book, sheet, 'ผลต่าง');
+
+  /*
+   * ชีตสรุปรายคน — หัวหน้าใช้ดูว่าใครทำไปเท่าไรโดยไม่ต้องเปิดเว็บ
+   *
+   * ตั้งใจไม่มีคอลัมน์ "ผิดกี่ตัว" เพราะผลต่างเป็นของ SKU ไม่ใช่ของคน
+   * ถ้าสองคนนับ SKU เดียวกัน ผลต่างที่ออกมาเป็นของทั้งคู่รวมกัน โยนให้ใครคนหนึ่งไม่ได้
+   */
+  if (counterStats.length > 0) {
+    const perPerson = XLSX.utils.aoa_to_sheet([
+      ['สรุปรายคน', session.code],
+      [],
+      ['รหัส', 'ชื่อ', 'จำนวน SKU', 'จำนวนบรรทัด', 'รวมหน่วยฐาน', 'นับล่าสุด'],
+      ...counterStats.map((c) => [
+        c.employeeCode,
+        c.name,
+        c.skus,
+        c.lines,
+        c.baseQty,
+        c.lastCountedAt ? new Date(c.lastCountedAt).toLocaleString('th-TH') : '',
+      ]),
+      [],
+      [
+        'รวมทั้งรอบ',
+        '',
+        totals.counted,
+        counterStats.reduce((s, c) => s + c.lines, 0),
+        counterStats.reduce((s, c) => s + c.baseQty, 0),
+        '',
+      ],
+      [
+        '',
+        'ช่อง SKU รวมนับแบบไม่ซ้ำ ถ้าสองคนนับตัวเดียวกันจะน้อยกว่าผลบวกรายคน',
+      ],
+    ]);
+    perPerson['!cols'] = [{ wch: 12 }, { wch: 24 }, { wch: 12 }, { wch: 13 }, { wch: 14 }, { wch: 22 }];
+    XLSX.utils.book_append_sheet(book, perPerson, 'สรุปรายคน');
+  }
 
   const buffer: Buffer = XLSX.write(book, { type: 'buffer', bookType: 'xlsx' });
 

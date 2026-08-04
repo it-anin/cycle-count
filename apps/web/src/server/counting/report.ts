@@ -43,6 +43,24 @@ export interface ReportTotals {
   diffValue: number;
 }
 
+/**
+ * สถิติของคนนับหนึ่งคนในรอบนี้
+ *
+ * ตั้งใจให้เป็น "ทำไปเท่าไร" ไม่ใช่ "ผิดกี่ตัว" — ผลต่างเป็นของ SKU ไม่ใช่ของคน
+ * ถ้าสองคนนับ SKU เดียวกัน ผลต่างที่ออกมาเป็นของทั้งคู่รวมกัน จะโยนให้ใครคนหนึ่งไม่ได้
+ * อยากดูผลต่างเฉพาะที่คนหนึ่งไปยุ่งด้วย ให้กรองตารางด้วยชื่อคนนั้นแทน
+ */
+export interface CounterStat {
+  employeeCode: string;
+  name: string;
+  /** จำนวน SKU (นับของที่ไม่รู้จักเป็นรายการหนึ่งด้วย) */
+  skus: number;
+  /** จำนวนบรรทัด — SKU เดียวยิงสองหน่วยนับเป็น 2 */
+  lines: number;
+  baseQty: number;
+  lastCountedAt: string | null;
+}
+
 export interface SessionReport {
   session: {
     id: string;
@@ -56,6 +74,8 @@ export interface SessionReport {
     closedAt: string | null;
   };
   totals: ReportTotals;
+  /** เรียงจากคนที่นับมากสุด — ว่างเมื่อยังไม่มีใครนับ */
+  counterStats: CounterStat[];
   rows: ReportRow[];
 }
 
@@ -163,9 +183,36 @@ export async function sessionReport(sessionId: string): Promise<SessionReport | 
 
   /** ชื่อคนนับอ่านง่ายกว่า uuid — ดึงมาแปลงทีเดียว */
   const profileRows = (await db.execute(sql`
-    SELECT user_id::text AS id, employee_code FROM cycle_count.profiles
-  `)) as unknown as { id: string; employee_code: string }[];
+    SELECT user_id::text AS id, employee_code, name FROM cycle_count.profiles
+  `)) as unknown as { id: string; employee_code: string; name: string }[];
   const nameOf = new Map(profileRows.map((p) => [p.id, p.employee_code]));
+  const fullNameOf = new Map(profileRows.map((p) => [p.id, p.name]));
+
+  /*
+   * สถิติรายคน — group ที่ระดับ counted_by ตรง ๆ จะได้ตัวเลขที่ไม่ขึ้นกับการยุบแถวข้างล่าง
+   * coalesce(sku, line_key) เพราะของที่ไม่รู้จักมี sku เป็น null แต่ยังต้องนับเป็นรายการ
+   */
+  const perCounter = (await db.execute(sql`
+    SELECT counted_by::text AS id,
+           count(DISTINCT coalesce(sku, line_key))::int AS skus,
+           count(*)::int AS lines,
+           sum(counted_qty * factor_to_base)::float8 AS base,
+           max(counted_at) AS last_at
+    FROM cycle_count.count_lines
+    WHERE session_id = ${sessionId}::uuid
+    GROUP BY counted_by
+  `)) as unknown as { id: string; skus: number; lines: number; base: number; last_at: Date | string | null }[];
+
+  const counterStats: CounterStat[] = perCounter
+    .map((c) => ({
+      employeeCode: nameOf.get(c.id) ?? c.id.slice(0, 8),
+      name: fullNameOf.get(c.id) ?? '(ไม่พบชื่อ)',
+      skus: Number(c.skus),
+      lines: Number(c.lines),
+      baseQty: round4(Number(c.base ?? 0)),
+      lastCountedAt: c.last_at ? new Date(c.last_at).toISOString() : null,
+    }))
+    .sort((a, b) => b.skus - a.skus);
 
   const expectedBySku = new Map(expectedRows.map((r) => [r.sku, Number(r.baseQty)]));
   const productBySku = new Map(productRows.map((r) => [r.sku, r]));
@@ -223,6 +270,7 @@ export async function sessionReport(sessionId: string): Promise<SessionReport | 
       closedAt: session.closedAt ? session.closedAt.toISOString() : null,
     },
     totals,
+    counterStats,
     rows,
   };
 }

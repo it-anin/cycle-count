@@ -17,6 +17,7 @@
     "seed": "tsx src/seed.ts",
     "upload:barcode-units": "tsx src/uploadBarcodeUnits.ts",
     "create:user": "tsx src/createUser.ts",
+    "user:active": "tsx src/setUserActive.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

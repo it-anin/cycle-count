@@ -80,6 +80,17 @@ export async function requireUser(req: Request): Promise<AuthContext> {
   // ล็อกอินผ่านแต่ยังไม่มี profile = แอดมินยังไม่ได้ตั้งค่าให้คนนี้
   if (!profile) throw forbidden('บัญชีนี้ยังไม่ถูกตั้งค่าให้ใช้งานระบบนับสต็อก');
 
+  /*
+   * ต้องเช็ค active ที่นี่ ไม่ใช่ที่ RLS
+   *
+   * RLS มี cycle_count.cc_is_active_user() คุมให้อยู่แล้ว แต่ Drizzle ต่อ DB ด้วย role
+   * `postgres` ซึ่ง BYPASSRLS — policy ตัวนั้นจึงไม่เคยทำงานกับ query ที่ผ่านแอปเลย
+   * ก่อนมีบรรทัดนี้ ปิดบัญชีแล้วพนักงานยังล็อกอินและส่งผลนับได้ตามปกติ
+   *
+   * แยกข้อความจาก 'ไม่มีสิทธิ์' ให้ชัด ไม่งั้นเวลาพนักงานโทรมาถามจะไล่สาเหตุไม่ถูก
+   */
+  if (!profile.active) throw forbidden('บัญชีนี้ถูกปิดใช้งาน ติดต่อผู้ดูแลระบบ');
+
   return { userId, profile };
 }
 

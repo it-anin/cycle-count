@@ -27,6 +27,15 @@ interface Row {
   lastCountedAt: string | null;
 }
 
+interface CounterStat {
+  employeeCode: string;
+  name: string;
+  skus: number;
+  lines: number;
+  baseQty: number;
+  lastCountedAt: string | null;
+}
+
 interface Report {
   session: {
     id: string;
@@ -38,6 +47,7 @@ interface Report {
     snapshotAt: string | null;
   };
   totals: { match: number; short: number; over: number; unknown: number; counted: number; expectedSkus: number };
+  counterStats: CounterStat[];
   rows: Row[];
 }
 
@@ -59,6 +69,8 @@ const FILTERS: { key: Kind | 'all'; label: string }[] = [
 export default function SessionTable({ report }: { report: Report }) {
   const { session, totals } = report;
   const [filter, setFilter] = useState<Kind | 'all'>('all');
+  /** null = ทุกคน — เก็บเป็นรหัสพนักงานเพราะ ReportRow.counters เก็บรหัสไว้อยู่แล้ว */
+  const [who, setWho] = useState<string | null>(null);
   const [q, setQ] = useState('');
   const [closing, setClosing] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string } | null>(null);
@@ -69,6 +81,7 @@ export default function SessionTable({ report }: { report: Report }) {
     const needle = q.trim().toLowerCase();
     return report.rows.filter((r) => {
       if (filter !== 'all' && r.kind !== filter) return false;
+      if (who && !r.counters.includes(who)) return false;
       if (!needle) return true;
       return (
         (r.sku ?? '').toLowerCase().includes(needle) ||
@@ -76,15 +89,31 @@ export default function SessionTable({ report }: { report: Report }) {
         (r.location ?? '').toLowerCase().includes(needle)
       );
     });
-  }, [report.rows, filter, q]);
+  }, [report.rows, filter, who, q]);
 
-  const count: Record<Kind | 'all', number> = {
-    all: totals.counted,
-    match: totals.match,
-    short: totals.short,
-    over: totals.over,
-    unknown: totals.unknown,
-  };
+  /*
+   * ตัวเลขบนชิปกรองต้องขยับตามคนที่เลือกด้วย
+   * ไม่งั้นกดกรองเฉพาะ "มุก" แล้วชิปยังขึ้น "ขาด 14" ทั้งที่ในตารางเหลือ 3 แถว
+   */
+  const count: Record<Kind | 'all', number> = useMemo(() => {
+    if (!who) {
+      return {
+        all: totals.counted,
+        match: totals.match,
+        short: totals.short,
+        over: totals.over,
+        unknown: totals.unknown,
+      };
+    }
+    const mine = report.rows.filter((r) => r.counters.includes(who));
+    return {
+      all: mine.length,
+      match: mine.filter((r) => r.kind === 'match').length,
+      short: mine.filter((r) => r.kind === 'short').length,
+      over: mine.filter((r) => r.kind === 'over').length,
+      unknown: mine.filter((r) => r.kind === 'unknown').length,
+    };
+  }, [report.rows, who, totals]);
 
   async function close(force: boolean) {
     setClosing(true);
@@ -175,6 +204,52 @@ export default function SessionTable({ report }: { report: Report }) {
           className="ml-auto w-56 border border-slate-300 px-2.5 py-0.5 text-xs outline-none focus:border-slate-800"
         />
       </div>
+
+      {/*
+        แถบรายคน — โผล่เฉพาะตอนมีคนนับมากกว่าหนึ่ง
+        รอบที่มีคนเดียวแถบนี้ไม่ได้บอกอะไรที่แถบบนไม่ได้บอกอยู่แล้ว และแบบ 8 ที่เลือกไว้
+        มีเหตุผลเดียวคือความหนาแน่น — กินที่ฟรีไป 36px ทุกจอไม่คุ้ม
+      */}
+      {report.counterStats.length > 1 && (
+        <div className="flex h-9 flex-none items-center gap-1.5 overflow-x-auto border-b border-slate-200 bg-slate-50 px-3">
+          <span className="flex-none text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+            ผู้นับ
+          </span>
+          <button
+            type="button"
+            onClick={() => setWho(null)}
+            className={`flex-none border px-2.5 py-0.5 text-xs ${
+              who === null
+                ? 'border-slate-800 bg-slate-800 text-white'
+                : 'border-slate-300 bg-white hover:bg-slate-100'
+            }`}
+          >
+            ทุกคน
+          </button>
+          {report.counterStats.map((c) => (
+            <button
+              key={c.employeeCode}
+              type="button"
+              onClick={() => setWho(who === c.employeeCode ? null : c.employeeCode)}
+              title={`${c.name} (${c.employeeCode}) · ${num(c.lines)} บรรทัด · ${num(c.baseQty)} หน่วยฐาน`}
+              className={`flex-none border px-2.5 py-0.5 text-xs whitespace-nowrap ${
+                who === c.employeeCode
+                  ? 'border-slate-800 bg-slate-800 text-white'
+                  : 'border-slate-300 bg-white hover:bg-slate-100'
+              }`}
+            >
+              <b className="font-semibold">{c.name}</b>{' '}
+              <span className="font-mono tabular-nums">{num(c.skus)}</span> SKU
+              {c.lastCountedAt && (
+                <span className={who === c.employeeCode ? 'text-slate-300' : 'text-slate-400'}>
+                  {' '}
+                  · {time(c.lastCountedAt)}
+                </span>
+              )}
+            </button>
+          ))}
+        </div>
+      )}
 
       {error && (
         <p className="flex-none border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
