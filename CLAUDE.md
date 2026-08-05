@@ -99,6 +99,8 @@ cycle-count/                    pnpm workspace + Turborepo
 | `client.ts` | postgres-js + Drizzle ต่อด้วย role `postgres` |
 | `uploadBarcodeUnits.ts` | โหลด R05106.CSV → `cycle_count.barcode_units` |
 | `createUser.ts` | สร้าง Supabase Auth user + แถว `profiles` พร้อมกัน (รันซ้ำ = เปลี่ยน PIN) |
+| `setUserActive.ts` | เปิด/ปิด/ดูรายชื่อบัญชี — แยกจาก createUser เพราะปิดบัญชีไม่ควรต้องกรอกชื่อ+PIN ใหม่ |
+| `session.ts` | สร้าง/เปิดใช้/ดูรายการรอบนับ — สร้างเป็น draft เสมอ (ดูเหตุผลข้อ 11) |
 | `seed.ts` | ข้อมูลตัวอย่างสำหรับ dev |
 | `drizzle/0000_*.sql` | ตารางทั้งหมด (generate) |
 | `drizzle/0001_rls.sql` | **เขียนมือ** — เปิด RLS + policy + helper function |
@@ -115,28 +117,63 @@ import     import_batches
 
 ### apps/web — Admin + API
 
+**12 route — สิทธิ์ระบุไว้ทุกตัว ห้ามเพิ่ม route ใหม่โดยไม่มีบรรทัด `require*`**
+
 ```
 src/app/api/
-├── health/                     GET   ทดสอบว่าเครื่องเข้าถึงได้
-├── pda/session/                GET   { user, session }
-├── pda/catalog/                GET   index บาร์โค้ดทั้งรอบ (ETag/304)
-├── pda/count-lines/            POST  upsert ผลนับ กันซ้ำด้วย lineKey
-├── admin/branches/             GET   รายชื่อสาขาใน public.stock
-├── admin/sessions/prepare/     POST  sync catalog + ถ่าย snapshot
-├── import/upload-url/          POST  signed URL ให้เบราว์เซอร์อัปตรงเข้า Storage
-└── import/process/             POST  อ่านไฟล์ที่อัปแล้ว → upsert
+├── health/                     GET   ไม่ตรวจสิทธิ์ — liveness probe ตัวเดียวที่ไม่ห่อ withApi
+├── pda/session/                GET   requireUser  { user, session } — หยิบรอบ active ล่าสุด
+├── pda/catalog/                GET   requireUser  index บาร์โค้ดทั้งรอบ (ETag/304)
+├── pda/count-lines/            POST  requireUser  upsert ผลนับ + ตอบใบเฉลยผลต่างกลับไป
+├── admin/branches/             GET   requireRole  รายชื่อสาขาใน public.stock
+├── admin/sessions/             GET   requireRole  รายการรอบนับทั้งหมด
+│                               POST  requireRole  เปิดรอบใหม่ (สร้าง→snapshot→active ในคำขอเดียว)
+├── admin/sessions/prepare/     POST  requireRole  sync catalog + ถ่าย snapshot ของรอบที่มีอยู่
+├── admin/sessions/[id]/report/ GET   requireRole  ตารางผลต่างทั้งรอบ + counterStats
+├── admin/sessions/[id]/export/ GET   requireRole  ไฟล์ xlsx สองชีต (ผลต่าง + สรุปรายคน)
+├── admin/sessions/[id]/close/  POST  requireRole  ปิดรอบ (409 ให้ยืนยันถ้ายังมีคนนับ)
+├── import/upload-url/          POST  requireRole  signed URL ให้เบราว์เซอร์อัปตรงเข้า Storage
+└── import/process/             POST  requireRole  อ่านไฟล์ที่อัปแล้ว → upsert
 ```
 
 ```
+src/middleware.ts               ต่ออายุ session cookie ทุก request — จำเป็นจริง ไม่ใช่ของเสริม
+                                (lib/supabase/server.ts เขียนพึ่งไว้ว่าจะมีตัวนี้เขียน cookie แทน
+                                 ตอน Server Component เขียนเองไม่ได้ ถ้าไม่มี แอดมินจะโดนเด้งออกกลางทาง)
+
 src/server/
 ├── auth.ts                     requireUser() / requireRole() — รับ Bearer (PDA) หรือ cookie (เว็บ)
-├── http.ts                     withApi() ครอบ error + CORS, preflight
+│                               + เช็ค profiles.active (ดูข้อ 3 ว่าทำไมต้องเช็คที่นี่)
+├── http.ts                     withApi() ครอบ error + CORS, preflight, badRequest/forbidden/notFound
+├── counting/report.ts          sessionReport() — ทุก SKU ที่มีคนนับ + counterStats รายคน
+├── counting/variance.ts        varianceForSubmission() — เฉพาะ SKU ที่เพิ่งส่ง (ใบเฉลยให้ PDA)
 ├── stock/sync.ts               syncCatalog() / snapshotExpected() / listBranches()
 └── import/upsert.ts            รับ typed rows ล้วน ไม่รู้จัก Excel (รอยต่อ ERP ในอนาคต)
 ```
 
-**หน้าเว็บยังไม่มี** — `page.tsx` เป็นหน้า placeholder ที่ลิงก์ไป `/api/health` เท่านั้น
-API พร้อมหมดแล้วแต่ยังไม่มี UI เรียก
+**`report.ts` กับ `variance.ts` แยกกันโดยตั้งใจ** — `report.ts` เอาทุก SKU ที่มีคนนับในรอบ
+ส่วน `variance.ts` เอาเฉพาะที่เพิ่งส่ง ถ้าเอาทั้งรอบมาเฉลยให้คนนับ อีก 6,600 SKU
+ที่ยังไม่มีใครเดินไปนับจะขึ้นว่า "ขาด" ทั้งหมด กลบของจริงจนอ่านไม่ออก
+
+### หน้าเว็บแอดมิน
+
+```
+src/app/
+├── login/page.tsx              รหัสพนักงาน + PIN ชุดเดียวกับ PDA (authEmailForEmployee ตัวเดียวกัน)
+├── page.tsx                    พาไปรอบนับล่าสุดเลย — แอดมินเปิดมาดูรอบที่กำลังนับ 99% ของเวลา
+└── sessions/[id]/
+    ├── page.tsx                Server Component — ดึง sessionReport() แล้วส่งลงตาราง
+    ├── SessionTable.tsx        ตารางผลต่างเต็มจอ + แถบผู้นับ + ปุ่มส่งออก/ปิดรอบ/รีเฟรช
+    └── NewSessionDialog.tsx    ฟอร์มเปิดรอบใหม่
+```
+
+**เลย์เอาต์เลือกแบบ "ตารางเต็มจอ" (แบบ 8 จาก `design/admin-layouts.html`) มาด้วยเหตุผลเดียว
+คือความหนาแน่น** งานหลักของแอดมินคือกวาดตาหาตัวที่ผิดในรายการเป็นร้อย ไม่ใช่อ่านทีละใบ
+อย่าเพิ่ม padding หรือการ์ดครอบ มันจะทำลายเหตุผลที่เลือกแบบนี้
+
+**ไม่มี polling / websocket โดยตั้งใจ** — หน้าเป็น Server Component render ครั้งเดียว
+ของใหม่จาก PDA จึงไม่ขึ้นเองจนกว่าจะกดปุ่มรีเฟรช (`router.refresh()`) นี่คือพฤติกรรมที่ตั้งใจ
+ไม่ใช่บั๊ก ถ้าจะเปลี่ยนเป็น auto-refresh ต้องถามก่อน (มีงานเบื้องหลังเพิ่ม)
 
 ### apps/pda — แอปบนเครื่อง
 
@@ -146,13 +183,20 @@ src/
 ├── screens/LoginScreen.tsx     รหัสพนักงาน + PIN (คีย์แพดของแอปเอง)
 ├── screens/CountLedgerScreen.tsx   หน้าจอนับ เลย์เอาต์ "สมุดบัญชี" 480×800 แนวตั้ง
 └── lib/
-    ├── api.ts                  เลือก mock หรือ HTTP จาก VITE_API_BASE_URL
-    ├── supabase.ts             client สำหรับ auth เท่านั้น
+    ├── api.ts                  เลือก mock หรือ HTTP จาก VITE_API_BASE_URL + lookup() ค้นในเครื่อง
+    ├── supabase.ts             client สำหรับ auth เท่านั้น (ไม่ได้ใช้ query ข้อมูล)
     ├── catalogCache.ts         เก็บ catalog ลง IndexedDB
-    ├── useLedger.ts            สมุดบัญชี + persist ลง localStorage ต่อรอบนับ
+    ├── useLedger.ts            สมุดบัญชี + persist แบบ debounce + ล็อกกันสแกนซ้ำ
+    ├── submittedLog.ts         SKU ที่ส่งสำเร็จแล้วต่อรอบ — append-only กันส่งทับยอดเดิม
     ├── useScanner.ts           รวมสัญญาณจาก native plugin + ช่องพิมพ์เอง
     └── nativeScanner.ts        สะพานไป ScanBroadcastPlugin
 ```
+
+**SKU ที่ส่งสำเร็จแล้วจะถูกล็อก สแกนซ้ำไม่เข้าสมุดอีก** — กันกับดักทยอยส่ง: สมุดถูกล้างว่าง
+หลังส่งทุกครั้ง ถ้าไม่ล็อก ส่ง 5 กล่องแล้วเดินต่อเจออีก 3 แล้วสแกนใหม่ จะ upsert ทับเหลือ 3 ไม่ใช่ 8
+
+เลือกปิดกั้นที่จุดสแกนแทนการเปลี่ยน server ให้บวกเพิ่ม เพราะการบวกจะทำลาย retry-safety เดิม
+(ส่งก้อนเดิมซ้ำตอนเน็ตกระตุกต้องยังปลอดภัย เพราะ upsert ทับด้วยค่าเดิม)
 
 ```
 android/app/src/
@@ -175,9 +219,23 @@ pnpm db:migrate           # รันขึ้น DB จริง
 pnpm db:seed
 
 pnpm --filter @cycle-count/db upload:barcode-units R05106.CSV
-pnpm --filter @cycle-count/db create:user
 pnpm --filter @cycle-count/pda android:apk      # → android/app/build/outputs/apk/debug/
+
+# ผู้ใช้
+pnpm --filter @cycle-count/db create:user -- --code MUK --name "มุก" --pin 123456 \
+     --warehouse "คลังสินค้า" --role counter        # รันซ้ำด้วยรหัสเดิม = เปลี่ยน PIN
+pnpm --filter @cycle-count/db user:active -- --list
+pnpm --filter @cycle-count/db user:active -- --code MUK --off
+
+# รอบนับ (หน้าเว็บมีปุ่มทำให้แล้ว CLI ไว้เผื่อ)
+pnpm --filter @cycle-count/db session -- --list
+pnpm --filter @cycle-count/db session -- --new --code CC-260901-WH \
+     --name "นับสต็อก ก.ย. 2569" --branch "คลังสินค้า"
+pnpm --filter @cycle-count/db session -- --activate --code CC-260901-WH
 ```
+
+⚠ **รหัสพนักงานเป็นภาษาไทยไม่ได้** — `authEmailForEmployee()` ตัดทุกอย่างที่ไม่ใช่ `a–z0–9`
+แล้ว throw ถ้าไม่เหลืออะไร (`"มุก"` → ค่าว่าง) ส่วน `--name` เป็นไทยได้ปกติ
 
 `.env` อยู่ที่ **root ของ monorepo** ไม่ใช่ในแต่ละ app —
 `next.config.mjs`, `vite.config.ts` และ `drizzle.config.ts` ต่างโหลดเองเพราะ
@@ -219,6 +277,11 @@ curl -H "Authorization: Bearer $TOKEN" ".../api/pda/catalog?sessionId=$BLIND" | 
 `client.ts` ต่อด้วย role `postgres` ซึ่ง **BYPASSRLS** — policy ใน `0001_rls.sql` เป็นเกราะชั้นสอง
 กรณี anon key หลุดเท่านั้น **การตรวจสิทธิ์จริงต้องเรียก `requireUser()` / `requireRole()`
 ทุก route** ลืมบรรทัดเดียว = endpoint นั้นเปิดโล่ง
+
+ผลพวงข้อเดียวกัน: **`profiles.active` ต้องเช็คใน `requireUser()` ไม่ใช่ปล่อยให้ RLS จัดการ**
+migration มี `cc_is_active_user()` เขียนไว้อยู่แล้ว แต่ policy นั้นไม่เคยทำงานกับ query ที่ผ่านแอปเลย
+เคยพลาดตรงนี้มาแล้ว — ปิดบัญชีไปแต่พนักงานยังล็อกอินและส่งผลนับได้ตามปกติ
+ถ้าย้ายการเช็คออกจาก `requireUser()` เมื่อไร ช่องโหว่กลับมาทันทีโดยไม่มีอะไรฟ้อง
 
 ### 4. ยอดตั้งต้นต้องแช่แข็ง ห้ามอ่านสด
 
@@ -294,11 +357,60 @@ PDA ตั้ง `Data Output Mode: Broadcast Mode` (ไม่ใช่ keyboard
 - ทุก route handler ประกาศ `export const preferredRegion = 'sin1'` — ปล่อย default
   function จะรันที่ US แล้วคุย DB ที่ Singapore เพิ่ม ~400 ms ต่อ query
 
+### 11. แพตเทิร์นที่ใช้ซ้ำ — เขียนของใหม่ให้เข้าชุด
+
+**โครง route handler** — เหมือนกันทุกตัวยกเว้น `/api/health`
+
+```ts
+export const dynamic = 'force-dynamic';
+export const preferredRegion = 'sin1';
+export const OPTIONS = preflight;              // เฉพาะ route ที่ PDA เรียก (คนละ origin)
+export const maxDuration = 300;                // เฉพาะตัวที่ sync/snapshot หมื่น SKU
+
+export const GET = withApi(async (req) => {
+  await requireRole(req, 'admin');             // หรือ requireUser(req) สำหรับ PDA
+  ...
+});
+```
+
+**อ่าน `[id]` จาก URL ไม่ใช่จาก params** — `withApi()` บีบ signature เหลือ `(req) => Response`
+จึงใช้ `new URL(req.url).pathname.split('/').at(-2)!`
+
+**คีย์ที่เก็บลงเครื่องฝั่ง PDA ต้องมีเวอร์ชันเสมอ** — `cc:ledger:v2:<sessionId>`,
+`cc:submitted:v1:<sessionId>`, `cc:scanExtraKey` และต้องอ่านใน `try/catch` แล้วคืนค่าว่างถ้าพัง
+(ข้อมูลค้างจากเวอร์ชันเก่าต้องไม่ทำให้จอขาว) — catalog ใช้ IndexedDB แทนเพราะ 2 MB ชน quota
+
+**สคริปต์ CLI ใน `packages/db`** — `process.loadEnvFile()` → `parseArgs()` → **dynamic `import()`**
+(ต้องโหลด env ก่อน ไม่งั้น client อ่าน `DATABASE_URL` ไม่เจอ) → ทำงาน → `process.exit(0)`
+ทุกตัวรันซ้ำได้ (upsert ไม่ใช่ insert)
+
+### 12. งานที่ย้อนกลับไม่ได้ต้องเตือนก่อน
+
+`close` และ `POST /api/admin/sessions` คืน **409 พร้อม `{ needsConfirm, message, ... }`**
+ให้ UI เอารายละเอียดไปแสดง แล้วต้องยิงซ้ำด้วย `force: true` ถึงจะทำจริง
+
+⚠ `prepare` เป็นของเก่ากว่า ใช้ **throw 403** แทน UI แกะรายละเอียดไปแสดงไม่ได้ —
+ถ้าแก้ตรงนั้นเมื่อไรให้เปลี่ยนมาเป็นแบบ 409 ให้เหมือนกันทั้งหมด
+
 ---
 
-## สิ่งที่แก้ไขล่าสุด
+## สถานะการใช้งานจริง
 
-สถานะ ณ commit แรก (`2094ceb`) — งานที่ทำไปในรอบนี้
+**ใช้งานจริงแล้วตั้งแต่ 5 ส.ค. 2569** — รอบ `CC-260804-WH` (คลังสินค้า, ปิดยอด, 6,696 SKU ตั้งต้น)
+
+เครื่อง PDA 5 เครื่อง: 4 เครื่องเป็นของพนักงานนับ (`MUK` มุก · `LAK` แล็ค · `TANG` ตั๋ง · `PEE` พี)
+อีกเครื่องแอดมินใช้ (`ADMIN-01`) — บัญชีทดสอบ `EMP-001/901/902` ถูกปิดไปแล้ว
+
+**แบ่งโซนกันนับ** จึงไม่เกิดปัญหาสอง SKU ทับกัน (ระบบรวมยอดของทุกคนตามการออกแบบ
+ถ้านับชั้นซ้ำจะขึ้นเป็น "เกิน" และกันให้ไม่ได้ เพราะยอดตั้งต้นเป็นยอดรวมทั้งคลัง
+ไม่มีข้อมูลระดับชั้นวาง)
+
+ทดสอบยิงพร้อมกันทั้ง 4 เครื่องแล้ว — 12 บรรทัดลงครบไม่มี lost update
+รวมยอดต่อ SKU ถูกทุกตัว (unique index มี `counted_by` อยู่ในคีย์ คนละคนจึงลงคนละแถว)
+
+---
+
+## บันทึกการพัฒนา
 
 **ต่อกับ Supabase ของจริง**
 ระบบเดิมอยู่ใน `public` ของโปรเจกต์เดียวกัน อัปเดตทุก 5 นาที เอามาเป็นยอดตั้งต้นผ่าน snapshot
@@ -336,11 +448,14 @@ PDA ตั้ง `Data Output Mode: Broadcast Mode` (ไม่ใช่ keyboard
 
 ## ยังไม่ได้ทำ
 
-- **หน้าเว็บแอดมิน** — ยังไม่มีเลย ต้องมี: สร้างรอบนับ (เลือกสาขา + โหมด), กดปุ่ม `prepare`,
-  อัปโหลด Excel, รายงานผลต่าง (ตีมูลค่าด้วย `resolvePrice()`)
-- **หน้าเลือกรอบนับบน PDA** — ตอนนี้ยิง `/api/pda/session` แล้วได้รอบ active มาเลย
+- **คอลัมน์มูลค่าผลต่างยังว่าง** — `resolvePrice()` ใน `core/pricing.ts` เขียนเสร็จและมีเทสครบ
+  แต่**ไม่มีใครเรียกใช้เลย** `report.ts` เขียน `diffValue: null` ตรง ๆ เหลือแค่ผูก price list เข้ารอบนับ
+- **ปลดล็อก SKU ที่ส่งไปแล้ว** — ล็อกอยู่ที่ระดับ SKU ไม่ใช่ระดับหน่วย (ส่ง "กล่อง" แล้วบล็อกทั้ง SKU
+  แม้ยังไม่เคยส่ง "แผง") และยังไม่มีปุ่มปลดในหน้าเว็บ ต้องแก้ที่ DB ตรง ๆ
+- **ไม่มีเทสอัตโนมัตินอกจาก `packages/core`** (51 ตัว) — `apps/web` กับ `apps/pda`
+  ไม่มี test runner ติดตั้งด้วยซ้ำ
+- **รวมแพตเทิร์น 403/409 ให้เหลือแบบเดียว** — ดูข้อ 12
+- **หน้าเลือกรอบนับบน PDA** — ตอนนี้ยิง `/api/pda/session` แล้วได้รอบ active ล่าสุดมาเลย
 - **ผูกรอบทวนกับรอบแรก** (`parentSessionId`) เพื่อให้รอบทวนแสดงว่ารอบแรกนับได้เท่าไร
-- **PDA เรียก API ใน LAN ไม่ได้** ขึ้น "failed to fetch" — ตัด CORS / firewall / IP / binding
-  ออกไปแล้ว เหลือข้อสงสัยว่าคอมต่อ Ethernet ส่วน PDA ต่อ Wi-Fi อาจคนละ subnet หรือ AP isolation
-  ทดสอบชี้ขาดด้วยการเปิด `http://<ip>:3000/api/health` ใน Chrome บนเครื่อง PDA
-  ทางเลี่ยง: `adb reverse tcp:3000 tcp:3000` แล้วตั้ง `VITE_API_BASE_URL="http://localhost:3000"`
+- **โหมดออฟไลน์เกิน 1 ชั่วโมงยังไม่ได้ทดสอบ** — access token อายุ 3,600 วินาที
+  ถ้าปิด Wi-Fi นานกว่านั้นแล้วกดส่ง ยังไม่ยืนยันว่า supabase-js ต่ออายุสำเร็จทุกครั้ง
