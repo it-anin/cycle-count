@@ -12,6 +12,10 @@ build/
 # turbo
 .turbo/
 
+# claude code — ไฟล์ล็อกชั่วคราวต่อ session (มี pid) ไม่ใช่ config
+# ⚠ ห้าม ignore .claude/skills/ — ต้องถูก commit เพื่อให้ skill ทำงาน
+.claude/scheduled_tasks.lock
+
 # env — ครอบทุกตัวแปรของ .env รวมไฟล์สำรอง เช่น .env.backup-*
 # (.env.*.local อย่างเดียวไม่พอ ไฟล์อย่าง .env.backup จะหลุด)
 .env
