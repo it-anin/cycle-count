@@ -236,6 +236,11 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
 
   const scanHint = (() => {
     switch (scanState.kind) {
+      case 'locked':
+        return {
+          text: `${scanState.entry.name} — นับไปแล้ว ${num(scanState.entry.baseQty)} ${scanState.entry.baseUom}`,
+          tone: 'locked' as const,
+        };
       case 'unknown':
         return { text: 'ไม่พบบาร์โค้ดนี้', tone: 'bad' as const };
       case 'found': {

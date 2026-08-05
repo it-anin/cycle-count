@@ -382,6 +382,19 @@ button {
   color: var(--ok);
 }
 
+/*
+  locked = ส่งไปแล้ว ไม่ต้องทำอะไรต่อ — ตั้งใจใช้โทนกลาง (เทา) ไม่ใช้แดง/เขียว/ส้ม
+  เพราะไม่ใช่ปัญหา เป็นเรื่องดีที่ระบบกันไม่ให้ส่งซ้ำโดยไม่ตั้งใจ
+*/
+.cc-scan--locked {
+  background: var(--sub);
+  border-bottom-color: var(--ink3);
+}
+
+.cc-scan--locked .cc-bars {
+  color: var(--ink2);
+}
+
 .cc-scan__input {
   flex: 1;
   min-width: 0;
@@ -428,6 +441,10 @@ button {
 
 .cc-scan__hint--wait {
   color: var(--ink3);
+}
+
+.cc-scan__hint--locked {
+  color: var(--ink2);
 }
 
 .cc-scan__manual {

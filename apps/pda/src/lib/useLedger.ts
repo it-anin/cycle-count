@@ -7,6 +7,10 @@
  *
  * การค้นบาร์โค้ดเป็น sync เพราะ catalog ถูกโหลดลงเครื่องไว้ก่อนแล้ว (ดู lib/api.ts)
  * ไม่มีสถานะ "กำลังค้น" ให้ผู้ใช้ต้องรอ
+ *
+ * SKU ที่ส่งสำเร็จไปแล้วในรอบนี้จะถูกล็อก สแกนซ้ำไม่ขึ้นเป็นแถวใหม่ (ดู submittedLog.ts)
+ * กันกับดักทยอยส่ง: ถ้าไม่ล็อก ส่ง 5 กล่องไปแล้วเดินต่อเจออีก 3 แล้วสแกนใหม่ จะส่งทับ
+ * เหลือ 3 แทนที่จะเป็น 8 เพราะสมุดถูกล้างว่างหลังส่งสำเร็จทุกครั้ง
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -14,6 +18,7 @@ import {
   applyScan,
   applyUnknownScan,
   bumpUnitQty as bumpUnitQtyPure,
+  countedBaseQty,
   ledgerKey,
   ledgerTotals,
   removeRow as removeRowPure,
@@ -25,12 +30,15 @@ import {
 } from '@cycle-count/core';
 
 import { api, lookup } from './api';
+import { loadLocked, saveLocked, type LockedEntry } from './submittedLog';
 
 export type ScanState =
   | { kind: 'idle' }
   /** อ้างแถวด้วย key ไม่ใช่ snapshot ของแถว — แก้จำนวนแล้วข้อความจะได้ตามทัน */
   | { kind: 'found'; barcode: string; key: string; uom: string }
-  | { kind: 'unknown'; barcode: string };
+  | { kind: 'unknown'; barcode: string }
+  /** SKU นี้เคยถูกส่งไปแล้วในรอบนี้จากเครื่องนี้ — ห้ามสแกนซ้ำ (ดู submittedLog.ts) */
+  | { kind: 'locked'; barcode: string; key: string; entry: LockedEntry };
 
 export type SubmitState =
   | { kind: 'idle' }
@@ -73,12 +81,17 @@ function save(sessionId: string, rows: LedgerRow[]) {
   }
 }
 
-/** สั่นสั้น = รับแล้ว, สั่นยาวสองจังหวะ = ไม่รู้จัก (ใช้ตอนไม่ได้มองจอ) */
+/**
+ * สั่นสั้น = รับแล้ว, สั่นสั้นสองจังหวะ = ไม่รู้จัก, สั่นยาวครั้งเดียว = ถูกล็อก (ห้ามส่งซ้ำ)
+ * แยกรูปแบบให้ต่างกันชัดเจนเพราะคนนับมักไม่ได้มองจอตอนสแกน
+ */
 function buzz(pattern: number | number[]) {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
     navigator.vibrate(pattern);
   }
 }
+
+const LOCKED_BUZZ = 220;
 
 export function useLedger(sessionId: string | null) {
   const [rows, setRows] = useState<LedgerRow[]>([]);
@@ -86,9 +99,16 @@ export function useLedger(sessionId: string | null) {
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' });
   const [restored, setRestored] = useState(false);
 
+  /**
+   * SKU ที่ส่งสำเร็จไปแล้วในรอบนี้จากเครื่องนี้ — append-only ต่อรอบนับ (ดู submittedLog.ts)
+   * เป็น ref ไม่ใช่ state เพราะแค่ต้องอ่านตอนสแกน ไม่ต้องทำให้จอ re-render เมื่อมันเปลี่ยน
+   */
+  const locked = useRef<Map<string, LockedEntry>>(new Map());
+
   useEffect(() => {
     if (!sessionId) return;
     setRows(load(sessionId));
+    locked.current = loadLocked(sessionId);
     setRestored(true);
   }, [sessionId]);
 
@@ -168,6 +188,18 @@ export function useLedger(sessionId: string | null) {
     setSubmitState({ kind: 'idle' });
 
     const hit = lookup(code);
+    const key = ledgerKey(hit?.sku ?? null, hit?.barcode ?? code);
+
+    /*
+     * เช็คก่อนตัดสินใจว่าเจอหรือไม่เจอ — SKU ที่ส่งไปแล้วต้องถูกกันไม่ให้เข้าสมุดอีกเลย
+     * ไม่ว่าจะยังหาใน master เจอหรือไม่ก็ตาม (ดูเหตุผลที่ submittedLog.ts)
+     */
+    const already = locked.current.get(key);
+    if (already) {
+      buzz(LOCKED_BUZZ);
+      setScanState({ kind: 'locked', barcode: code, key, entry: already });
+      return;
+    }
 
     if (!hit) {
       buzz([90, 70, 90]);
@@ -178,12 +210,7 @@ export function useLedger(sessionId: string | null) {
 
     buzz(35);
     setRows((prev) => applyScan(prev, hit));
-    setScanState({
-      kind: 'found',
-      barcode: code,
-      key: ledgerKey(hit.sku, hit.barcode),
-      uom: hit.uom,
-    });
+    setScanState({ kind: 'found', barcode: code, key, uom: hit.uom });
   }, []);
 
   const setUnitQty = useCallback((key: string, uom: string, qty: number) => {
@@ -210,6 +237,26 @@ export function useLedger(sessionId: string | null) {
     setSubmitState({ kind: 'sending' });
     try {
       const result = await api.submit({ sessionId, lines: toCountLines(rows) });
+
+      /*
+       * ล็อกทุกแถวที่เพิ่งส่งสำเร็จ กันสแกนซ้ำแล้วส่งทับยอดเดิมทีหลัง (ดู submittedLog.ts)
+       * ต้องทำก่อน setRows([]) — ตัวแปร rows ในโคลชัวร์นี้ยังเป็นชุดที่เพิ่งส่งอยู่
+       * ส่วน state ที่ React เห็นจะว่างไปแล้วหลังบรรทัดถัดไป ไม่กระทบการอ่านตรงนี้
+       */
+      const submittedAt = new Date().toISOString();
+      const nextLocked = new Map(locked.current);
+      for (const row of rows) {
+        nextLocked.set(row.key, {
+          sku: row.sku,
+          name: row.name,
+          baseQty: countedBaseQty(row),
+          baseUom: row.baseUom,
+          submittedAt,
+        });
+      }
+      locked.current = nextLocked;
+      saveLocked(sessionId, nextLocked);
+
       setRows([]);
 
       /*
