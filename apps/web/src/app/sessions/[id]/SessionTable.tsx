@@ -10,7 +10,8 @@
  */
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useRouter } from 'next/navigation';
+import { useMemo, useState, useTransition } from 'react';
 
 import NewSessionDialog from './NewSessionDialog';
 
@@ -69,6 +70,9 @@ const FILTERS: { key: Kind | 'all'; label: string }[] = [
 ];
 
 export default function SessionTable({ report }: { report: Report }) {
+  const router = useRouter();
+  const [refreshing, startRefresh] = useTransition();
+
   const { session, totals } = report;
   const [filter, setFilter] = useState<Kind | 'all'>('all');
   /** null = ทุกคน — เก็บเป็นรหัสพนักงานเพราะ ReportRow.counters เก็บรหัสไว้อยู่แล้ว */
@@ -174,6 +178,20 @@ export default function SessionTable({ report }: { report: Report }) {
         </span>
 
         <div className="ml-auto flex gap-2">
+          {/*
+            หน้านี้เป็น Server Component ธรรมดา ไม่มี polling/websocket ตั้งใจ —
+            ข้อมูลจึงนิ่งอยู่ ณ ตอนที่โหลดหน้า สแกนใหม่จาก PDA จะไม่ขึ้นเองจนกว่าจะรีเฟรช
+            router.refresh() สั่งให้ Server Component ฝั่งนี้ query DB ใหม่โดยไม่รีโหลดทั้งหน้า
+            (state ของตัวกรอง/ค้นหาด้านล่างไม่หายเพราะเป็น client state)
+          */}
+          <button
+            type="button"
+            disabled={refreshing}
+            onClick={() => startRefresh(() => router.refresh())}
+            className="border border-slate-400 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
+          >
+            {refreshing ? 'กำลังโหลด…' : '↻ รีเฟรช'}
+          </button>
           <button
             type="button"
             onClick={() => setOpening(true)}
