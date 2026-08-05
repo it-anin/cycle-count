@@ -147,6 +147,15 @@ export default function SessionTable({ report }: { report: Report }) {
     }
   }
 
+  /*
+   * ตารางแสดง "ผู้นับ" เป็นชื่อ แต่การกรอง (who) ยังอ้างด้วยรหัสเหมือนเดิม
+   * รหัสเป็นตัวระบุที่นิ่งกว่าเอาไว้ผูก state ส่วนชื่อไว้ให้คนอ่านเท่านั้น
+   */
+  const nameByCode = useMemo(
+    () => new Map(report.counterStats.map((c) => [c.employeeCode, c.name])),
+    [report.counterStats],
+  );
+
   const diffClass = (kind: Kind) =>
     kind === 'short' ? 'text-red-700' : kind === 'over' ? 'text-blue-700' : kind === 'unknown' ? 'text-amber-700' : 'text-emerald-700';
 
@@ -316,7 +325,7 @@ export default function SessionTable({ report }: { report: Report }) {
                     {r.diff === null ? '?' : r.diff > 0 ? `+${num(r.diff)}` : num(r.diff)}
                   </td>
                   <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
-                    {r.counters.join(', ')}
+                    {r.counters.map((code) => nameByCode.get(code) ?? code).join(', ')}
                   </td>
                   <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
                     {time(r.lastCountedAt)}

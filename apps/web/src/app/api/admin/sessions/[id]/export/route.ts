@@ -55,6 +55,9 @@ export const GET = withApi(async (req) => {
     'ยอดตั้งต้น', 'นับได้', 'ผลต่าง', 'สถานะ', 'ผู้นับ', 'เวลานับล่าสุด',
   ];
 
+  /** r.counters เก็บเป็นรหัสพนักงาน (ตัวระบุที่นิ่งกว่า) — ตารางในไฟล์นี้โชว์เป็นชื่อแทน */
+  const nameByCode = new Map(counterStats.map((c) => [c.employeeCode, c.name]));
+
   const body = rows.map((r) => [
     r.sku ?? '',
     r.name,
@@ -64,7 +67,7 @@ export const GET = withApi(async (req) => {
     r.countedBaseQty,
     r.diff ?? '',
     KIND_LABEL[r.kind] ?? r.kind,
-    r.counters.join(', '),
+    r.counters.map((code) => nameByCode.get(code) ?? code).join(', '),
     r.lastCountedAt ? new Date(r.lastCountedAt).toLocaleString('th-TH') : '',
   ]);
 
