@@ -10,14 +10,14 @@
  */
 'use client';
 
-import { useRouter } from 'next/navigation';
-import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 import NewSessionDialog from './NewSessionDialog';
 
 type Kind = 'match' | 'short' | 'over' | 'unknown';
 
 interface Row {
+  key: string;
   sku: string | null;
   name: string;
   location: string | null;
@@ -39,7 +39,17 @@ interface CounterStat {
   lastCountedAt: string | null;
 }
 
+interface Totals {
+  match: number;
+  short: number;
+  over: number;
+  unknown: number;
+  counted: number;
+  expectedSkus: number;
+}
+
 interface Report {
+  refreshedAt: string;
   session: {
     id: string;
     code: string;
@@ -49,14 +59,15 @@ interface Report {
     sourceBranch: string | null;
     snapshotAt: string | null;
   };
-  totals: {
-    match: number;
-    short: number;
-    over: number;
-    unknown: number;
-    counted: number;
-    expectedSkus: number;
-  };
+  totals: Totals;
+  counterStats: CounterStat[];
+  rows: Row[];
+}
+
+interface ReportDelta {
+  refreshedAt: string;
+  session: Report['session'];
+  expectedSkus: number;
   counterStats: CounterStat[];
   rows: Row[];
 }
@@ -86,9 +97,32 @@ const FILTERS: { key: Kind | 'all'; label: string }[] = [
   { key: 'match', label: 'ตรง' },
 ];
 
-export default function SessionTable({ report }: { report: Report }) {
-  const router = useRouter();
-  const [refreshing, startRefresh] = useTransition();
+const ROW_ORDER: Record<Kind, number> = { short: 0, over: 1, unknown: 2, match: 3 };
+
+function sortRows(rows: Row[]): Row[] {
+  return rows.sort((a, b) => {
+    if (ROW_ORDER[a.kind] !== ROW_ORDER[b.kind]) return ROW_ORDER[a.kind] - ROW_ORDER[b.kind];
+    return Math.abs(b.diff ?? 0) - Math.abs(a.diff ?? 0);
+  });
+}
+
+function summarize(rows: Row[], expectedSkus: number): Totals {
+  const totals: Totals = {
+    match: 0,
+    short: 0,
+    over: 0,
+    unknown: 0,
+    counted: rows.length,
+    expectedSkus,
+  };
+  for (const row of rows) totals[row.kind] += 1;
+  return totals;
+}
+
+export default function SessionTable({ report: initialReport }: { report: Report }) {
+  const [liveReport, setLiveReport] = useState<Report | null>(null);
+  const report = liveReport?.session.id === initialReport.session.id ? liveReport : initialReport;
+  const [refreshing, setRefreshing] = useState(false);
   const tableViewport = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
   const [viewportHeight, setViewportHeight] = useState(600);
@@ -100,9 +134,47 @@ export default function SessionTable({ report }: { report: Report }) {
   const [q, setQ] = useState('');
   const [closing, setClosing] = useState(false);
   const [confirm, setConfirm] = useState<{ message: string } | null>(null);
-  const [closed, setClosed] = useState(session.status === 'closed');
+  const [closedSessionId, setClosedSessionId] = useState<string | null>(null);
+  const closed = session.status === 'closed' || closedSessionId === session.id;
   const [opening, setOpening] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  async function refresh() {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError(null);
+
+    try {
+      const params = new URLSearchParams({ since: report.refreshedAt });
+      const res = await fetch(`/api/admin/sessions/${session.id}/report?${params}`, {
+        cache: 'no-store',
+      });
+      const data = await res.json().catch(() => null);
+
+      if (res.status === 401) {
+        window.location.assign('/login');
+        return;
+      }
+      if (!res.ok) throw new Error(data?.error ?? 'รีเฟรชรายงานไม่สำเร็จ');
+
+      const delta = data as ReportDelta;
+      const merged = new Map(report.rows.map((row) => [row.key, row]));
+      for (const row of delta.rows) merged.set(row.key, row);
+      const nextRows = sortRows([...merged.values()]);
+
+      setLiveReport({
+        refreshedAt: delta.refreshedAt,
+        session: delta.session,
+        totals: summarize(nextRows, delta.expectedSkus),
+        counterStats: delta.counterStats,
+        rows: nextRows,
+      });
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'รีเฟรชรายงานไม่สำเร็จ');
+    } finally {
+      setRefreshing(false);
+    }
+  }
 
   const rows = useMemo(() => {
     const needle = q.trim().toLowerCase();
@@ -163,7 +235,7 @@ export default function SessionTable({ report }: { report: Report }) {
       }
 
       setConfirm(null);
-      setClosed(true);
+      setClosedSessionId(session.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'ปิดรอบไม่สำเร็จ');
     } finally {
@@ -248,15 +320,14 @@ export default function SessionTable({ report }: { report: Report }) {
 
         <div className="ml-auto flex gap-2">
           {/*
-            หน้านี้เป็น Server Component ธรรมดา ไม่มี polling/websocket ตั้งใจ —
-            ข้อมูลจึงนิ่งอยู่ ณ ตอนที่โหลดหน้า สแกนใหม่จาก PDA จะไม่ขึ้นเองจนกว่าจะรีเฟรช
-            router.refresh() สั่งให้ Server Component ฝั่งนี้ query DB ใหม่โดยไม่รีโหลดทั้งหน้า
-            (state ของตัวกรอง/ค้นหาด้านล่างไม่หายเพราะเป็น client state)
+            ยังไม่มี polling/websocket ตามเจตนาเดิม ข้อมูลใหม่ขึ้นเมื่อผู้ใช้กดเองเท่านั้น
+            แต่ refresh ขอเฉพาะ row_key ที่ updated_at ใหม่กว่า watermark แล้ว merge เข้า state
+            จึงไม่ต้องส่งรายงานหลายพันแถวซ้ำ และตัวกรอง/ตำแหน่ง scroll ไม่หาย
           */}
           <button
             type="button"
             disabled={refreshing}
-            onClick={() => startRefresh(() => router.refresh())}
+            onClick={() => void refresh()}
             className="border border-slate-400 bg-white px-3 py-1 text-xs hover:bg-slate-50 disabled:opacity-50"
           >
             {refreshing ? 'กำลังโหลด…' : '↻ รีเฟรช'}
@@ -419,12 +490,8 @@ export default function SessionTable({ report }: { report: Report }) {
                     <td colSpan={9} className="p-0" />
                   </tr>
                 )}
-                {visibleRows.map((r, index) => (
-                  <tr
-                    key={`${r.sku ?? r.name}-${visibleRange.start + index}`}
-                    style={{ height: ROW_HEIGHT }}
-                    className="hover:bg-amber-50"
-                  >
+                {visibleRows.map((r) => (
+                  <tr key={r.key} style={{ height: ROW_HEIGHT }} className="hover:bg-amber-50">
                     <td className="border-b border-slate-100 px-2 py-1 font-mono text-[12px] whitespace-nowrap">
                       {r.sku ?? '—'}
                     </td>
