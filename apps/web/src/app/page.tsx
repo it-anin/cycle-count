@@ -1,8 +1,9 @@
 /**
- * หน้าแรก — พาไปที่รอบนับล่าสุดเลย
+ * หน้าแรก — แสดงรอบนับล่าสุดเลย
  *
  * แอดมินเปิดเว็บมาก็เพื่อดูรอบที่กำลังนับอยู่ 99% ของเวลา
- * ให้มีหน้ารายการคั่นกลางเป็นการเพิ่มคลิกโดยไม่ได้อะไร
+ * ให้มีหน้ารายการคั่นกลางเป็นการเพิ่มคลิกโดยไม่ได้อะไร และการ redirect ไป URL
+ * รอบล่าสุดทำให้ Auth + query ทำงานซ้ำ จึงใช้ SessionView ร่วมกันแล้วแสดงตรงนี้
  * (รอบเก่าเข้าถึงได้จาก URL ตรง ๆ ไว้ค่อยทำตัวสลับรอบตอนมีหลายคลัง)
  */
 import { desc } from 'drizzle-orm';
@@ -12,6 +13,7 @@ import { redirect } from 'next/navigation';
 import { countSessions } from '@cycle-count/db';
 
 import { db } from '@/lib/db';
+import SessionView from '@/app/sessions/SessionView';
 import { requireRole } from '@/server/auth';
 import { ApiError } from '@/server/http';
 
@@ -57,5 +59,10 @@ export default async function HomePage() {
     );
   }
 
-  redirect(`/sessions/${latest.id}`);
+  /*
+   * แสดงรอบล่าสุดตรงนี้เลยแทน redirect ไป `/sessions/[id]` เพราะ redirect เดิมทำให้
+   * browser เปิด request ใหม่ แล้ว middleware/Auth/profile ต้องทำงานซ้ำทั้งชุด
+   * URL รายรอบยังใช้ได้ตามเดิมสำหรับ bookmark และประวัติรอบเก่า
+   */
+  return <SessionView id={latest.id} />;
 }

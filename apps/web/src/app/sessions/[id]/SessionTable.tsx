@@ -11,7 +11,7 @@
 'use client';
 
 import { useRouter } from 'next/navigation';
-import { useMemo, useState, useTransition } from 'react';
+import { useEffect, useMemo, useRef, useState, useTransition } from 'react';
 
 import NewSessionDialog from './NewSessionDialog';
 
@@ -49,17 +49,34 @@ interface Report {
     sourceBranch: string | null;
     snapshotAt: string | null;
   };
-  totals: { match: number; short: number; over: number; unknown: number; counted: number; expectedSkus: number };
+  totals: {
+    match: number;
+    short: number;
+    over: number;
+    unknown: number;
+    counted: number;
+    expectedSkus: number;
+  };
   counterStats: CounterStat[];
   rows: Row[];
 }
 
-const num = (n: number) => n.toLocaleString('th-TH', { maximumFractionDigits: 4 });
+const numberFormat = new Intl.NumberFormat('th-TH', { maximumFractionDigits: 4 });
+const timeFormat = new Intl.DateTimeFormat('th-TH', {
+  hour: '2-digit',
+  minute: '2-digit',
+  timeZone: 'Asia/Bangkok',
+});
+const num = (n: number) => numberFormat.format(n);
 
 function time(iso: string | null): string {
   if (!iso) return '';
-  return new Date(iso).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit' });
+  return timeFormat.format(new Date(iso));
 }
+
+/** แถวตารางกำหนดความสูงคงที่เพื่อ render เฉพาะช่วงที่อยู่ใกล้ viewport */
+const ROW_HEIGHT = 29;
+const OVERSCAN = 12;
 
 const FILTERS: { key: Kind | 'all'; label: string }[] = [
   { key: 'all', label: 'ทั้งหมด' },
@@ -72,6 +89,9 @@ const FILTERS: { key: Kind | 'all'; label: string }[] = [
 export default function SessionTable({ report }: { report: Report }) {
   const router = useRouter();
   const [refreshing, startRefresh] = useTransition();
+  const tableViewport = useRef<HTMLDivElement>(null);
+  const [scrollTop, setScrollTop] = useState(0);
+  const [viewportHeight, setViewportHeight] = useState(600);
 
   const { session, totals } = report;
   const [filter, setFilter] = useState<Kind | 'all'>('all');
@@ -160,8 +180,57 @@ export default function SessionTable({ report }: { report: Report }) {
     [report.counterStats],
   );
 
+  /*
+   * รายงานเต็มรอบมีได้หลายพัน SKU การใส่ทุก <tr>/<td> ลง DOM พร้อมกันทำให้
+   * hydration และการค้นหาหน่วง แม้ข้อมูลจะดาวน์โหลดเสร็จแล้ว จึงเก็บความสูง viewport
+   * แล้ววาดเฉพาะแถวที่มองเห็นพร้อม buffer ด้านบน/ล่าง
+   */
+  useEffect(() => {
+    const element = tableViewport.current;
+    if (!element) return;
+
+    const updateHeight = () => setViewportHeight(element.clientHeight);
+    updateHeight();
+
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, []);
+
+  useEffect(() => {
+    const element = tableViewport.current;
+    if (element) element.scrollTop = 0;
+    setScrollTop(0);
+  }, [filter, who, q]);
+
+  const visibleRange = useMemo(() => {
+    if (rows.length === 0) return { start: 0, end: 0, top: 0, bottom: 0 };
+
+    const start = Math.min(
+      rows.length - 1,
+      Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - OVERSCAN),
+    );
+    const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + OVERSCAN * 2;
+    const end = Math.min(rows.length, start + visibleCount);
+
+    return {
+      start,
+      end,
+      top: start * ROW_HEIGHT,
+      bottom: (rows.length - end) * ROW_HEIGHT,
+    };
+  }, [rows.length, scrollTop, viewportHeight]);
+
+  const visibleRows = rows.slice(visibleRange.start, visibleRange.end);
+
   const diffClass = (kind: Kind) =>
-    kind === 'short' ? 'text-red-700' : kind === 'over' ? 'text-blue-700' : kind === 'unknown' ? 'text-amber-700' : 'text-emerald-700';
+    kind === 'short'
+      ? 'text-red-700'
+      : kind === 'over'
+        ? 'text-blue-700'
+        : kind === 'unknown'
+          ? 'text-amber-700'
+          : 'text-emerald-700';
 
   return (
     <div className="flex h-dvh flex-col bg-white text-[13px] text-slate-900">
@@ -289,26 +358,51 @@ export default function SessionTable({ report }: { report: Report }) {
       )}
 
       {error && (
-        <p className="flex-none border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">{error}</p>
+        <p className="flex-none border-b border-red-200 bg-red-50 px-3 py-1.5 text-xs text-red-700">
+          {error}
+        </p>
       )}
 
       {/* ── ตาราง ──────────────────────────────────────────── */}
-      <div className="min-h-0 flex-1 overflow-auto">
-        <table className="w-full border-collapse">
+      <div
+        ref={tableViewport}
+        onScroll={(event) => setScrollTop(event.currentTarget.scrollTop)}
+        className="min-h-0 flex-1 overflow-auto"
+      >
+        <table className="w-full min-w-[78rem] table-fixed border-collapse">
+          <colgroup>
+            <col className="w-28" />
+            <col className="w-[22rem]" />
+            <col className="w-32" />
+            <col className="w-24" />
+            <col className="w-24" />
+            <col className="w-24" />
+            <col className="w-24" />
+            <col className="w-48" />
+            <col className="w-20" />
+          </colgroup>
           <thead>
             <tr>
-              {['SKU', 'ชื่อสินค้า', 'ตำแหน่ง', 'หน่วยฐาน', 'ตั้งต้น', 'นับได้', 'ผลต่าง', 'ผู้นับ', 'เวลา'].map(
-                (h, i) => (
-                  <th
-                    key={h}
-                    className={`sticky top-0 z-10 border-b border-slate-300 bg-slate-50 px-2 py-1 text-[11.5px] font-bold whitespace-nowrap ${
-                      i >= 4 && i <= 6 ? 'text-right' : 'text-left'
-                    }`}
-                  >
-                    {h}
-                  </th>
-                ),
-              )}
+              {[
+                'SKU',
+                'ชื่อสินค้า',
+                'ตำแหน่ง',
+                'หน่วยฐาน',
+                'ตั้งต้น',
+                'นับได้',
+                'ผลต่าง',
+                'ผู้นับ',
+                'เวลา',
+              ].map((h, i) => (
+                <th
+                  key={h}
+                  className={`sticky top-0 z-10 border-b border-slate-300 bg-slate-50 px-2 py-1 text-[11.5px] font-bold whitespace-nowrap ${
+                    i >= 4 && i <= 6 ? 'text-right' : 'text-left'
+                  }`}
+                >
+                  {h}
+                </th>
+              ))}
             </tr>
           </thead>
           <tbody>
@@ -319,37 +413,58 @@ export default function SessionTable({ report }: { report: Report }) {
                 </td>
               </tr>
             ) : (
-              rows.map((r) => (
-                <tr key={r.sku ?? r.name} className="hover:bg-amber-50">
-                  <td className="border-b border-slate-100 px-2 py-1 font-mono text-[12px] whitespace-nowrap">
-                    {r.sku ?? '—'}
-                  </td>
-                  <td className="max-w-[22rem] truncate border-b border-slate-100 px-2 py-1">{r.name}</td>
-                  <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
-                    {r.location ?? ''}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
-                    {r.baseUom}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1 text-right font-mono tabular-nums">
-                    {r.expectedBaseQty === null ? '—' : num(r.expectedBaseQty)}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1 text-right font-mono tabular-nums">
-                    {num(r.countedBaseQty)}
-                  </td>
-                  <td
-                    className={`border-b border-slate-100 px-2 py-1 text-right font-mono font-bold tabular-nums ${diffClass(r.kind)}`}
+              <>
+                {visibleRange.top > 0 && (
+                  <tr aria-hidden="true" style={{ height: visibleRange.top }}>
+                    <td colSpan={9} className="p-0" />
+                  </tr>
+                )}
+                {visibleRows.map((r, index) => (
+                  <tr
+                    key={`${r.sku ?? r.name}-${visibleRange.start + index}`}
+                    style={{ height: ROW_HEIGHT }}
+                    className="hover:bg-amber-50"
                   >
-                    {r.diff === null ? '?' : r.diff > 0 ? `+${num(r.diff)}` : num(r.diff)}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
-                    {r.counters.map((code) => nameByCode.get(code) ?? code).join(', ')}
-                  </td>
-                  <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
-                    {time(r.lastCountedAt)}
-                  </td>
-                </tr>
-              ))
+                    <td className="border-b border-slate-100 px-2 py-1 font-mono text-[12px] whitespace-nowrap">
+                      {r.sku ?? '—'}
+                    </td>
+                    <td className="max-w-[22rem] truncate border-b border-slate-100 px-2 py-1">
+                      {r.name}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
+                      {r.location ?? ''}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
+                      {r.baseUom}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1 text-right font-mono tabular-nums">
+                      {r.expectedBaseQty === null ? '—' : num(r.expectedBaseQty)}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1 text-right font-mono tabular-nums">
+                      {num(r.countedBaseQty)}
+                    </td>
+                    <td
+                      className={`border-b border-slate-100 px-2 py-1 text-right font-mono font-bold tabular-nums ${diffClass(r.kind)}`}
+                    >
+                      {r.diff === null ? '?' : r.diff > 0 ? `+${num(r.diff)}` : num(r.diff)}
+                    </td>
+                    <td
+                      title={r.counters.map((code) => nameByCode.get(code) ?? code).join(', ')}
+                      className="truncate border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500"
+                    >
+                      {r.counters.map((code) => nameByCode.get(code) ?? code).join(', ')}
+                    </td>
+                    <td className="border-b border-slate-100 px-2 py-1 whitespace-nowrap text-slate-500">
+                      {time(r.lastCountedAt)}
+                    </td>
+                  </tr>
+                ))}
+                {visibleRange.bottom > 0 && (
+                  <tr aria-hidden="true" style={{ height: visibleRange.bottom }}>
+                    <td colSpan={9} className="p-0" />
+                  </tr>
+                )}
+              </>
             )}
           </tbody>
         </table>

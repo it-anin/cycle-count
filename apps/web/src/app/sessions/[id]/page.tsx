@@ -8,10 +8,9 @@ import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { requireRole } from '@/server/auth';
-import { sessionReport } from '@/server/counting/report';
 import { ApiError } from '@/server/http';
 
-import SessionTable from './SessionTable';
+import SessionView from '../SessionView';
 
 export const dynamic = 'force-dynamic';
 export const preferredRegion = 'sin1';
@@ -32,14 +31,5 @@ export default async function SessionPage({ params }: { params: Promise<{ id: st
     throw err;
   }
 
-  const report = await sessionReport(id);
-  if (!report) {
-    return (
-      <main className="grid min-h-dvh place-items-center text-slate-500">
-        ไม่พบรอบนับนี้
-      </main>
-    );
-  }
-
-  return <SessionTable report={report} />;
+  return <SessionView id={id} />;
 }
