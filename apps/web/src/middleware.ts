@@ -6,17 +6,15 @@
  * โดยหวังให้ middleware เขียนแทน ถ้าไม่มีไฟล์นี้ access token จะหมดอายุแล้วแอดมิน
  * โดนเด้งออกกลางทางโดยไม่มีสาเหตุที่มองเห็น
  *
- * getUser() ต้องถูกเรียกที่นี่ ไม่ใช่ getSession() — getUser() คุยกับ Supabase
- * เพื่อยืนยันและต่ออายุจริง ส่วน getSession() แค่อ่าน cookie ที่มีอยู่
+ * getClaims() ยืนยันลายเซ็น ES256 ในเครื่องด้วย JWKS ที่ cache ไว้ และยังต่ออายุ
+ * token/cookie เมื่อหมดอายุ จึงไม่ต้องรอ network round-trip ไป Auth server ทุก request
  *
  * แปะผลที่ verify แล้วไว้ใน header x-cc-user-id ส่งต่อให้ requireUser() อ่านแทน
- * เพื่อไม่ต้องเรียก getUser() ซ้ำอีกรอบที่ route handler / Server Component —
- * ตรงนี้ยิง Supabase Auth ไปแล้ว 1 รอบ ถ้าปล่อยให้ requireUser() ยิงซ้ำคือ
- * รอ network round-trip เดิมสองเท่าเปล่า ๆ ทุก request
+ * เพื่อไม่ต้อง verify token ซ้ำอีกรอบที่ route handler / Server Component
  *
  * ต้องตั้งค่า/ลบ header นี้แบบไม่มีเงื่อนไข (ไม่ใช่แค่ตอนมี user) — กัน client
  * ปลอม header เข้ามาเองแล้วหลอกว่าเป็น user คนอื่น ค่าที่ผ่านออกไปจากที่นี่ต้องมาจาก
- * ผล getUser() จริงเท่านั้น
+ * ผล getClaims() ที่ตรวจลายเซ็นแล้วเท่านั้น
  */
 import { createServerClient, type CookieOptions } from '@supabase/ssr';
 import { NextResponse, type NextRequest } from 'next/server';
@@ -42,10 +40,11 @@ export async function middleware(request: NextRequest) {
     },
   );
 
-  const { data } = await supabase.auth.getUser();
+  const { data } = await supabase.auth.getClaims();
+  const userId = typeof data?.claims?.sub === 'string' ? data.claims.sub : null;
 
-  if (data.user) {
-    request.headers.set('x-cc-user-id', data.user.id);
+  if (userId) {
+    request.headers.set('x-cc-user-id', userId);
   } else {
     request.headers.delete('x-cc-user-id');
   }

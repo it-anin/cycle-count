@@ -59,21 +59,21 @@ async function userIdFromToken(token: string): Promise<string | null> {
 }
 
 /**
- * middleware.ts ยิง getUser() ไปแล้ว 1 รอบต่อ request และแปะผลไว้ใน header นี้
+ * middleware.ts ตรวจ token ด้วย getClaims() แล้วแปะผลไว้ใน header นี้
  * ถ้ามีให้เชื่อเลยไม่ต้องยิงซ้ำ — เชื่อได้เพราะ middleware ตั้ง/ลบ header นี้เองเสมอ
  * แบบไม่มีเงื่อนไข (ไม่ได้แค่ไม่ลบตอนไม่มี user) จึง client ปลอมค่าเข้ามาเองไม่ได้
  *
- * ไม่มี header (เช่น route ที่ matcher ของ middleware ไม่ครอบ) ก็ยังต้องยิง getUser()
- * ตรงเหมือนเดิม ไม่ใช่ถือว่าไม่ได้ล็อกอิน — กันเคสที่ลืมอัปเดต matcher ในอนาคต
+ * ไม่มี header (เช่น route ที่ matcher ของ middleware ไม่ครอบ) ก็ยังต้องตรวจ getClaims()
+ * ตรงนี้ ไม่ใช่ถือว่าไม่ได้ล็อกอิน — กันเคสที่ลืมอัปเดต matcher ในอนาคต
  */
 async function userIdFromCookies(req: Request): Promise<string | null> {
   const trusted = req.headers.get('x-cc-user-id');
   if (trusted) return trusted;
 
   const supabase = await createServerClient();
-  const { data, error } = await supabase.auth.getUser();
-  if (error || !data.user) return null;
-  return data.user.id;
+  const { data, error } = await supabase.auth.getClaims();
+  const userId = typeof data?.claims?.sub === 'string' ? data.claims.sub : null;
+  return error || !userId ? null : userId;
 }
 
 /**
