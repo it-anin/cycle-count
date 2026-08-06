@@ -76,6 +76,8 @@ export const countLinePayload = z.object({
 /** จำกัด 2,000 บรรทัดต่อคำขอ — หนึ่งรอบนับปกติไม่ถึง และกัน payload บวมเกินไป */
 export const submitCountBody = z.object({
   sessionId: z.string().uuid(),
+  /** APK เก่าไม่ส่ง field นี้ ฝั่ง server ยังรับได้แบบ legacy */
+  catalogVersion: z.string().trim().min(1).max(200).optional(),
   lines: z.array(countLinePayload).min(1).max(2000),
 });
 

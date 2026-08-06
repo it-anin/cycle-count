@@ -7,6 +7,7 @@ import {
   countedBaseQty,
   ledgerKey,
   ledgerTotals,
+  reconcileLedgerCatalog,
   removeRow,
   removeUnit,
   setUnitQty,
@@ -129,7 +130,9 @@ describe('แก้จำนวนย้อนหลัง', () => {
   });
 
   it('setUnitQty ไม่ยอมให้ติดลบ และกัน NaN', () => {
-    expect(setUnitQty(base, '100098', 'แผง', -3, AT)[0]!.units.find((u) => u.uom === 'แผง')!.qty).toBe(0);
+    expect(
+      setUnitQty(base, '100098', 'แผง', -3, AT)[0]!.units.find((u) => u.uom === 'แผง')!.qty,
+    ).toBe(0);
     expect(
       setUnitQty(base, '100098', 'แผง', Number.NaN, AT)[0]!.units.find((u) => u.uom === 'แผง')!.qty,
     ).toBe(0);
@@ -297,5 +300,61 @@ describe('toCountLines', () => {
   it('แถวที่ไม่พบ SKU ใช้ ?|barcode เป็น lineKey', () => {
     const rows = applyUnknownScan([], '999', 2, AT);
     expect(toCountLines(rows)[0]).toMatchObject({ lineKey: '?|999', sku: null, countedQty: 2 });
+  });
+});
+
+describe('reconcileLedgerCatalog', () => {
+  const reconcile = (rows: LedgerRow[], entries: BarcodeLookup[]) => {
+    const byBarcode = new Map(entries.map((entry) => [entry.barcode, entry]));
+    return reconcileLedgerCatalog(rows, (barcode) => byBarcode.get(barcode) ?? null);
+  };
+
+  it('เปลี่ยนเฉพาะชื่อ/ตำแหน่งแล้ว hydrate ใหม่โดยไม่บล็อก', () => {
+    const rows = applyScan([], strip(), 5, AT);
+    const result = reconcile(rows, [strip({ name: 'ชื่อใหม่', location: 'B-02' })]);
+
+    expect(result.conflicts).toEqual([]);
+    expect(result.rows[0]).toMatchObject({ name: 'ชื่อใหม่', location: 'B-02' });
+    expect(result.rows[0]!.units[0]!.qty).toBe(5);
+  });
+
+  it('ตรวจพบการย้ายบาร์โค้ดไป SKU อื่นแม้จำนวนบาร์โค้ดเท่าเดิม', () => {
+    const rows = applyScan([], strip(), 5, AT);
+    const result = reconcile(rows, [strip({ sku: '200001' })]);
+
+    expect(result.conflicts).toMatchObject([
+      { rowKey: '100098', barcode: '8851111100098', reason: 'sku_changed' },
+    ]);
+    expect(result.rows).toEqual(rows);
+  });
+
+  it('ตรวจพบการแก้ตัวคูณ หน่วย และหน่วยฐาน', () => {
+    const rows = applyScan([], strip(), 5, AT);
+
+    expect(reconcile(rows, [strip({ factorToBase: 2 })]).conflicts[0]?.reason).toBe(
+      'factor_changed',
+    );
+    expect(reconcile(rows, [strip({ uom: 'กล่อง' })]).conflicts[0]?.reason).toBe('uom_changed');
+    expect(reconcile(rows, [strip({ baseUom: 'ชิ้น' })]).conflicts[0]?.reason).toBe(
+      'base_uom_changed',
+    );
+  });
+
+  it('บาร์โค้ดถูกลบออกจาก master ต้องบล็อก', () => {
+    const rows = applyScan([], strip(), 5, AT);
+    expect(reconcile(rows, []).conflicts[0]?.reason).toBe('barcode_removed');
+  });
+
+  it('บาร์โค้ดที่เดิมไม่รู้จักแต่ปัจจุบันรู้จักต้องนับใหม่', () => {
+    const rows = applyUnknownScan([], '999', 2, AT);
+    const result = reconcile(rows, [strip({ barcode: '999' })]);
+
+    expect(result.conflicts[0]?.reason).toBe('became_known');
+    expect(result.rows[0]).toMatchObject({ sku: null, flagged: true });
+  });
+
+  it('บาร์โค้ดที่ยังไม่รู้จักเหมือนเดิมสามารถ bind version ใหม่ได้', () => {
+    const rows = applyUnknownScan([], '999', 2, AT);
+    expect(reconcile(rows, [])).toEqual({ rows, conflicts: [] });
   });
 });

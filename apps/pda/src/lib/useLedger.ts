@@ -1,16 +1,8 @@
 /**
  * สถานะสมุดบัญชีของหน้าจอนับสต็อก
  *
- * เก็บลง localStorage แบบหน่วงเวลา แล้ว flush ทันทีเมื่อแอปกำลังจะหายไปจากหน้าจอ —
- * PDA ในคลังโดน WebView รีโหลดหรือแบตหมดกลางรอบได้เสมอ ของที่นับไปแล้วต้องไม่หาย
- * (ดู SAVE_DEBOUNCE_MS ว่าทำไมถึงไม่เขียนทุกครั้งที่ state เปลี่ยน)
- *
- * การค้นบาร์โค้ดเป็น sync เพราะ catalog ถูกโหลดลงเครื่องไว้ก่อนแล้ว (ดู lib/api.ts)
- * ไม่มีสถานะ "กำลังค้น" ให้ผู้ใช้ต้องรอ
- *
- * SKU ที่ส่งสำเร็จไปแล้วในรอบนี้จะถูกล็อก สแกนซ้ำไม่ขึ้นเป็นแถวใหม่ (ดู submittedLog.ts)
- * กันกับดักทยอยส่ง: ถ้าไม่ล็อก ส่ง 5 กล่องไปแล้วเดินต่อเจออีก 3 แล้วสแกนใหม่ จะส่งทับ
- * เหลือ 3 แทนที่จะเป็น 8 เพราะสมุดถูกล้างว่างหลังส่งสำเร็จทุกครั้ง
+ * สมุดผูกกับ catalogVersion ที่ใช้ตอนนับ เพื่อไม่ให้เปิดแอปใหม่แล้ว catalog เปลี่ยน
+ * แต่ยังส่ง factor/SKU เก่าที่ค้างใน localStorage ขึ้น server โดยไม่รู้ตัว
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
 
@@ -21,70 +13,83 @@ import {
   countedBaseQty,
   ledgerKey,
   ledgerTotals,
+  reconcileLedgerCatalog,
   removeRow as removeRowPure,
   removeUnit as removeUnitPure,
   setUnitQty as setUnitQtyPure,
   toCountLines,
+  type CatalogConflict,
   type LedgerRow,
   type SubmitVariance,
 } from '@cycle-count/core';
 
-import { api, lookup } from './api';
+import { api, CatalogStaleError, lookup } from './api';
 import { loadLocked, saveLocked, type LockedEntry } from './submittedLog';
 
 export type ScanState =
   | { kind: 'idle' }
-  /** อ้างแถวด้วย key ไม่ใช่ snapshot ของแถว — แก้จำนวนแล้วข้อความจะได้ตามทัน */
   | { kind: 'found'; barcode: string; key: string; uom: string }
   | { kind: 'unknown'; barcode: string }
-  /** SKU นี้เคยถูกส่งไปแล้วในรอบนี้จากเครื่องนี้ — ห้ามสแกนซ้ำ (ดู submittedLog.ts) */
   | { kind: 'locked'; barcode: string; key: string; entry: LockedEntry };
 
 export type SubmitState =
   | { kind: 'idle' }
   | { kind: 'sending' }
-  /** ส่งสำเร็จ — variance คือใบเฉลยที่ server คำนวณให้หลังบันทึกแล้ว */
   | { kind: 'done'; saved: number; variance: SubmitVariance }
   | { kind: 'error'; message: string };
 
-/**
- * v2 = โครง LedgerRow เปลี่ยนเป็นหนึ่งแถวต่อ SKU (มี units ข้างใน)
- * ขึ้นเวอร์ชันเพื่อไม่ให้เครื่องที่มีข้อมูลค้างจากโครงเก่าอ่านแล้วพัง
- */
-const storageKey = (sessionId: string) => `cc:ledger:v2:${sessionId}`;
+export type SubmitOutcome = 'done' | 'conflict' | 'error' | 'noop';
 
-/**
- * หน่วงการเขียนลงเครื่องเท่านี้ก่อนเขียนจริง
- *
- * 800 ms สั้นกว่าจังหวะที่คนหยิบของชิ้นถัดไปมายิง แต่ยาวพอจะกลืนการกดคีย์แพดรัว ๆ
- * ให้เหลือการเขียนครั้งเดียว — ยิงติดกัน 20 ครั้งใน 15 วินาทีเขียนราว 18 ครั้งลดเหลือ ~1
- */
+interface StoredLedger {
+  catalogVersion: string | null;
+  rows: LedgerRow[];
+}
+
+/** v3 เพิ่ม catalogVersion ครอบ rows; v2 ยังอ่านเพื่อย้ายยอดค้างโดยไม่ลบทิ้ง */
+const storageKey = (sessionId: string) => `cc:ledger:v3:${sessionId}`;
+const legacyStorageKey = (sessionId: string) => `cc:ledger:v2:${sessionId}`;
 const SAVE_DEBOUNCE_MS = 800;
 
-function load(sessionId: string): LedgerRow[] {
+function load(sessionId: string): StoredLedger {
   try {
     const raw = localStorage.getItem(storageKey(sessionId));
-    if (!raw) return [];
-    const parsed: unknown = JSON.parse(raw);
-    return Array.isArray(parsed) ? (parsed as LedgerRow[]) : [];
+    if (raw) {
+      const parsed: unknown = JSON.parse(raw);
+      if (parsed && typeof parsed === 'object') {
+        const candidate = parsed as Partial<StoredLedger>;
+        if (Array.isArray(candidate.rows)) {
+          return {
+            catalogVersion:
+              typeof candidate.catalogVersion === 'string' ? candidate.catalogVersion : null,
+            rows: candidate.rows as LedgerRow[],
+          };
+        }
+      }
+    }
   } catch {
-    // ข้อมูลค้างจากเวอร์ชันเก่าหรือ JSON พัง — เริ่มใหม่ดีกว่าจอขาว
-    return [];
+    // ลอง v2 ต่อด้านล่าง — v3 พังต้องไม่ทำให้จอขาว
+  }
+
+  try {
+    const raw = localStorage.getItem(legacyStorageKey(sessionId));
+    if (!raw) return { catalogVersion: null, rows: [] };
+    const parsed: unknown = JSON.parse(raw);
+    return Array.isArray(parsed)
+      ? { catalogVersion: null, rows: parsed as LedgerRow[] }
+      : { catalogVersion: null, rows: [] };
+  } catch {
+    return { catalogVersion: null, rows: [] };
   }
 }
 
-function save(sessionId: string, rows: LedgerRow[]) {
+function save(sessionId: string, ledger: StoredLedger) {
   try {
-    localStorage.setItem(storageKey(sessionId), JSON.stringify(rows));
+    localStorage.setItem(storageKey(sessionId), JSON.stringify(ledger));
   } catch {
     // เต็ม/โดนปิด — ไม่ควรทำให้การนับสะดุด
   }
 }
 
-/**
- * สั่นสั้น = รับแล้ว, สั่นสั้นสองจังหวะ = ไม่รู้จัก, สั่นยาวครั้งเดียว = ถูกล็อก (ห้ามส่งซ้ำ)
- * แยกรูปแบบให้ต่างกันชัดเจนเพราะคนนับมักไม่ได้มองจอตอนสแกน
- */
 function buzz(pattern: number | number[]) {
   if (typeof navigator !== 'undefined' && typeof navigator.vibrate === 'function') {
     navigator.vibrate(pattern);
@@ -93,40 +98,65 @@ function buzz(pattern: number | number[]) {
 
 const LOCKED_BUZZ = 220;
 
-export function useLedger(sessionId: string | null) {
+export function useLedger(sessionId: string | null, initialCatalogVersion: string) {
   const [rows, setRows] = useState<LedgerRow[]>([]);
   const [scanState, setScanState] = useState<ScanState>({ kind: 'idle' });
   const [submitState, setSubmitState] = useState<SubmitState>({ kind: 'idle' });
+  const [catalogConflicts, setCatalogConflicts] = useState<CatalogConflict[]>([]);
   const [restored, setRestored] = useState(false);
 
-  /**
-   * SKU ที่ส่งสำเร็จไปแล้วในรอบนี้จากเครื่องนี้ — append-only ต่อรอบนับ (ดู submittedLog.ts)
-   * เป็น ref ไม่ใช่ state เพราะแค่ต้องอ่านตอนสแกน ไม่ต้องทำให้จอ re-render เมื่อมันเปลี่ยน
-   */
+  const rowsRef = useRef<LedgerRow[]>([]);
+  const conflictsRef = useRef<CatalogConflict[]>([]);
+  const activeCatalogVersion = useRef(initialCatalogVersion);
+  const ledgerCatalogVersion = useRef<string | null>(initialCatalogVersion);
   const locked = useRef<Map<string, LockedEntry>>(new Map());
+
+  const replaceRows = useCallback((next: LedgerRow[]) => {
+    rowsRef.current = next;
+    setRows(next);
+  }, []);
+
+  const replaceConflicts = useCallback((next: CatalogConflict[]) => {
+    conflictsRef.current = next;
+    setCatalogConflicts(next);
+  }, []);
+
+  /** เทียบ rows กับ index ล่าสุด และ bind version เมื่อไม่มีรายการที่ต้องนับใหม่ */
+  const reconcileCurrent = useCallback(
+    (candidate: LedgerRow[]): LedgerRow[] => {
+      const reconciled = reconcileLedgerCatalog(candidate, lookup);
+      replaceConflicts(reconciled.conflicts);
+      if (reconciled.conflicts.length === 0) {
+        ledgerCatalogVersion.current = activeCatalogVersion.current;
+      }
+      return reconciled.rows;
+    },
+    [replaceConflicts],
+  );
 
   useEffect(() => {
     if (!sessionId) return;
-    setRows(load(sessionId));
+
+    setRestored(false);
+    activeCatalogVersion.current = initialCatalogVersion;
+
+    const stored = load(sessionId);
+    ledgerCatalogVersion.current = stored.catalogVersion;
+
+    const restoredRows =
+      stored.catalogVersion === initialCatalogVersion ? stored.rows : reconcileCurrent(stored.rows);
+
+    replaceRows(restoredRows);
+    if (stored.catalogVersion === initialCatalogVersion) replaceConflicts([]);
+
     locked.current = loadLocked(sessionId);
     setRestored(true);
-  }, [sessionId]);
+  }, [sessionId, initialCatalogVersion, reconcileCurrent, replaceConflicts, replaceRows]);
 
-  /*
-   * เขียนลงเครื่องแบบหน่วงเวลา แต่ยัง flush ทันทีตอนแอปกำลังจะหายไปจากหน้าจอ
-   *
-   * เดิมเขียนทุกครั้งที่ rows เปลี่ยน = ทุกการยิงบาร์โค้ด **และทุกปุ่มคีย์แพดตอนแก้จำนวน**
-   * แต่ละครั้งคือ JSON.stringify ทั้งสมุด (300 SKU ราว 100 KB) แล้วเขียนแบบ sync บน UI thread
-   * ยิงรัว ๆ ในคลังจึงเสียทั้งความลื่นและแบตไปกับการเขียน flash ซ้ำ ๆ ที่ไม่มีใครอ่าน
-   *
-   * เหตุผลที่ยังต้อง flush: ฟังก์ชันนี้มีไว้กัน WebView รีโหลด/แบตหมดกลางรอบแล้วของที่นับหาย
-   * ถ้าหน่วงเฉย ๆ โดยไม่ flush ก็เท่ากับทำลายเหตุผลเดียวที่มันมีอยู่
-   * flush ตอน hidden/pagehide ทำให้หน้าต่างเสี่ยงเหลือแค่ <1 วินาทีของการสแกนต่อเนื่องจริง ๆ
-   */
-  const pending = useRef<{ sessionId: string; rows: LedgerRow[] } | null>(null);
+  /* เขียนลงเครื่องแบบ debounce แต่ flush ทันทีเมื่อ WebView หายจากหน้าจอ */
+  const pending = useRef<{ sessionId: string; ledger: StoredLedger } | null>(null);
   const timer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  /** ทิ้งงานเขียนที่ค้างอยู่โดยไม่เขียน — ใช้ตอนกำลังจะเขียนค่าที่ใหม่กว่าทับอยู่แล้ว */
   const cancelPendingSave = useCallback(() => {
     if (timer.current !== null) {
       clearTimeout(timer.current);
@@ -138,34 +168,20 @@ export function useLedger(sessionId: string | null) {
   const flush = useCallback(() => {
     const due = pending.current;
     cancelPendingSave();
-    if (due) save(due.sessionId, due.rows);
+    if (due) save(due.sessionId, due.ledger);
   }, [cancelPendingSave]);
 
-  /*
-   * ตั้งใจไม่มี cleanup ที่ clearTimeout
-   *
-   * ถ้าใส่ cleanup ที่ล้าง timer ทิ้ง การเขียนตอน unmount จะไปพึ่ง "ลำดับของ effect"
-   * ว่า cleanup ของ effect ที่ flush ต้องทำงานทีหลัง — วันไหนมีคนสลับลำดับ effect
-   * ข้อมูลจะหายเงียบ ๆ โดยไม่มีอะไรฟ้อง
-   *
-   * แบบนี้ปลอดภัยทุกทางแทน: รอบถัดไปล้าง timer เก่าเองอยู่แล้ว (บรรทัดล่าง)
-   * และถ้า timer หลุดมายิงหลัง unmount ก็แค่เขียนค่าที่ถูกต้องลงเครื่อง ไม่มี setState ให้พัง
-   */
   useEffect(() => {
     if (!sessionId || !restored) return;
 
-    pending.current = { sessionId, rows };
+    pending.current = {
+      sessionId,
+      ledger: { catalogVersion: ledgerCatalogVersion.current, rows },
+    };
     if (timer.current !== null) clearTimeout(timer.current);
     timer.current = setTimeout(flush, SAVE_DEBOUNCE_MS);
   }, [sessionId, restored, rows, flush]);
 
-  /*
-   * แยก effect ออกมาเพราะ listener ต้องผูกครั้งเดียว ไม่ใช่ถอด/ใส่ใหม่ทุกครั้งที่ rows เปลี่ยน
-   * flush อ่านค่าล่าสุดจาก ref อยู่แล้วจึงไม่ต้องมี rows เป็น dependency
-   *
-   * บน Capacitor การกดปุ่ม Home หรือจอดับทำให้ WebView ยิง visibilitychange เป็น hidden
-   * ส่วน pagehide ครอบกรณีที่ WebView ถูกทำลายทิ้งโดยไม่ผ่าน hidden
-   */
   useEffect(() => {
     function onHide() {
       if (document.visibilityState === 'hidden') flush();
@@ -173,7 +189,6 @@ export function useLedger(sessionId: string | null) {
     document.addEventListener('visibilitychange', onHide);
     window.addEventListener('pagehide', flush);
 
-    // unmount = ออกจากระบบหรือปิดรอบ ต้องเขียนของที่ค้างลงให้หมดก่อน
     return () => {
       document.removeEventListener('visibilitychange', onHide);
       window.removeEventListener('pagehide', flush);
@@ -181,71 +196,88 @@ export function useLedger(sessionId: string | null) {
     };
   }, [flush]);
 
-  const scan = useCallback((barcode: string) => {
-    const code = barcode.trim();
-    if (!code) return;
+  const scan = useCallback(
+    (barcode: string) => {
+      if (conflictsRef.current.length > 0) {
+        buzz(LOCKED_BUZZ);
+        return;
+      }
 
-    setSubmitState({ kind: 'idle' });
+      const code = barcode.trim();
+      if (!code) return;
 
-    const hit = lookup(code);
-    const key = ledgerKey(hit?.sku ?? null, hit?.barcode ?? code);
+      setSubmitState({ kind: 'idle' });
 
-    /*
-     * เช็คก่อนตัดสินใจว่าเจอหรือไม่เจอ — SKU ที่ส่งไปแล้วต้องถูกกันไม่ให้เข้าสมุดอีกเลย
-     * ไม่ว่าจะยังหาใน master เจอหรือไม่ก็ตาม (ดูเหตุผลที่ submittedLog.ts)
-     */
-    const already = locked.current.get(key);
-    if (already) {
-      buzz(LOCKED_BUZZ);
-      setScanState({ kind: 'locked', barcode: code, key, entry: already });
-      return;
-    }
+      const hit = lookup(code);
+      const key = ledgerKey(hit?.sku ?? null, hit?.barcode ?? code);
+      const already = locked.current.get(key);
+      if (already) {
+        buzz(LOCKED_BUZZ);
+        setScanState({ kind: 'locked', barcode: code, key, entry: already });
+        return;
+      }
 
-    if (!hit) {
-      buzz([90, 70, 90]);
-      setRows((prev) => applyUnknownScan(prev, code));
-      setScanState({ kind: 'unknown', barcode: code });
-      return;
-    }
+      if (!hit) {
+        buzz([90, 70, 90]);
+        replaceRows(applyUnknownScan(rowsRef.current, code));
+        setScanState({ kind: 'unknown', barcode: code });
+        return;
+      }
 
-    buzz(35);
-    setRows((prev) => applyScan(prev, hit));
-    setScanState({ kind: 'found', barcode: code, key, uom: hit.uom });
-  }, []);
+      buzz(35);
+      replaceRows(applyScan(rowsRef.current, hit));
+      setScanState({ kind: 'found', barcode: code, key, uom: hit.uom });
+    },
+    [replaceRows],
+  );
 
-  const setUnitQty = useCallback((key: string, uom: string, qty: number) => {
-    setRows((prev) => setUnitQtyPure(prev, key, uom, qty));
-  }, []);
+  const setUnitQty = useCallback(
+    (key: string, uom: string, qty: number) => {
+      if (conflictsRef.current.length > 0) return;
+      replaceRows(setUnitQtyPure(rowsRef.current, key, uom, qty));
+    },
+    [replaceRows],
+  );
 
-  const bumpUnitQty = useCallback((key: string, uom: string, delta: number) => {
-    setRows((prev) => bumpUnitQtyPure(prev, key, uom, delta));
-  }, []);
+  const bumpUnitQty = useCallback(
+    (key: string, uom: string, delta: number) => {
+      if (conflictsRef.current.length > 0) return;
+      replaceRows(bumpUnitQtyPure(rowsRef.current, key, uom, delta));
+    },
+    [replaceRows],
+  );
 
-  const removeUnit = useCallback((key: string, uom: string) => {
-    setRows((prev) => removeUnitPure(prev, key, uom));
-    setScanState({ kind: 'idle' });
-  }, []);
+  const removeUnit = useCallback(
+    (key: string, uom: string) => {
+      const next = removeUnitPure(rowsRef.current, key, uom);
+      replaceRows(conflictsRef.current.length > 0 ? reconcileCurrent(next) : next);
+      setScanState({ kind: 'idle' });
+    },
+    [reconcileCurrent, replaceRows],
+  );
 
-  const removeRow = useCallback((key: string) => {
-    setRows((prev) => removeRowPure(prev, key));
-    setScanState({ kind: 'idle' });
-  }, []);
+  const removeRow = useCallback(
+    (key: string) => {
+      const next = removeRowPure(rowsRef.current, key);
+      replaceRows(conflictsRef.current.length > 0 ? reconcileCurrent(next) : next);
+      setScanState({ kind: 'idle' });
+    },
+    [reconcileCurrent, replaceRows],
+  );
 
-  const submit = useCallback(async () => {
-    if (!sessionId || rows.length === 0) return;
+  const submit = useCallback(async (): Promise<SubmitOutcome> => {
+    if (!sessionId || rowsRef.current.length === 0) return 'noop';
+    if (conflictsRef.current.length > 0) return 'conflict';
 
     setSubmitState({ kind: 'sending' });
-    try {
-      const result = await api.submit({ sessionId, lines: toCountLines(rows) });
 
-      /*
-       * ล็อกทุกแถวที่เพิ่งส่งสำเร็จ กันสแกนซ้ำแล้วส่งทับยอดเดิมทีหลัง (ดู submittedLog.ts)
-       * ต้องทำก่อน setRows([]) — ตัวแปร rows ในโคลชัวร์นี้ยังเป็นชุดที่เพิ่งส่งอยู่
-       * ส่วน state ที่ React เห็นจะว่างไปแล้วหลังบรรทัดถัดไป ไม่กระทบการอ่านตรงนี้
-       */
+    const finishSuccess = (
+      submittedRows: LedgerRow[],
+      result: Awaited<ReturnType<typeof api.submit>>,
+    ) => {
       const submittedAt = new Date().toISOString();
       const nextLocked = new Map(locked.current);
-      for (const row of rows) {
+      for (const row of submittedRows) {
         nextLocked.set(row.key, {
           sku: row.sku,
           name: row.name,
@@ -257,30 +289,76 @@ export function useLedger(sessionId: string | null) {
       locked.current = nextLocked;
       saveLocked(sessionId, nextLocked);
 
-      setRows([]);
+      replaceRows([]);
+      replaceConflicts([]);
+      ledgerCatalogVersion.current = activeCatalogVersion.current;
 
-      /*
-       * เขียนสมุดว่างลงเครื่องทันที ไม่รอ debounce
-       *
-       * ถ้าแอปตายในช่วง 800 ms หลังส่งสำเร็จ แล้วยังเหลือของเก่าค้างอยู่บนดิสก์
-       * พนักงานจะเปิดมาเจอรายการที่ส่งไปแล้วโผล่มาใหม่ แล้วนึกว่ายังไม่ได้ส่ง
-       * (ส่งซ้ำไม่ทำให้ยอดเพี้ยนเพราะ server upsert แต่สร้างความสับสนโดยไม่จำเป็น)
-       *
-       * เขียนตรงแทนการเรียก flush() เพราะ pending ยังถือ rows ชุดเก่าอยู่ —
-       * effect ที่อัปเดต pending ทำงานหลัง render ไม่ทันบรรทัดนี้
-       */
       cancelPendingSave();
-      save(sessionId, []);
+      save(sessionId, {
+        catalogVersion: ledgerCatalogVersion.current,
+        rows: [],
+      });
 
       setScanState({ kind: 'idle' });
       setSubmitState({ kind: 'done', saved: result.saved, variance: result.variance });
+    };
+
+    const send = async (submittedRows: LedgerRow[], retried: boolean): Promise<SubmitOutcome> => {
+      try {
+        const result = await api.submit({
+          sessionId,
+          catalogVersion: activeCatalogVersion.current,
+          lines: toCountLines(submittedRows),
+        });
+        finishSuccess(submittedRows, result);
+        return 'done';
+      } catch (err) {
+        if (err instanceof CatalogStaleError && !retried) {
+          const fresh = await api.loadCatalog(sessionId);
+          activeCatalogVersion.current = fresh.catalogVersion;
+
+          const reconciled = reconcileLedgerCatalog(submittedRows, lookup);
+          replaceRows(reconciled.rows);
+          replaceConflicts(reconciled.conflicts);
+
+          if (reconciled.conflicts.length > 0) {
+            /* เก็บ version เดิมไว้จนกว่ารายการที่ตีความไม่ได้จะถูกลบและนับใหม่ */
+            cancelPendingSave();
+            save(sessionId, {
+              catalogVersion: ledgerCatalogVersion.current,
+              rows: reconciled.rows,
+            });
+            setSubmitState({ kind: 'idle' });
+            return 'conflict';
+          }
+
+          ledgerCatalogVersion.current = fresh.catalogVersion;
+          cancelPendingSave();
+          save(sessionId, {
+            catalogVersion: fresh.catalogVersion,
+            rows: reconciled.rows,
+          });
+
+          return send(reconciled.rows, true);
+        }
+
+        if (err instanceof CatalogStaleError) {
+          throw new Error('รายการสินค้าเปลี่ยนอีกครั้งระหว่างตรวจ กรุณากดส่งใหม่');
+        }
+        throw err;
+      }
+    };
+
+    try {
+      return await send(rowsRef.current, false);
     } catch (err) {
       setSubmitState({
         kind: 'error',
         message: err instanceof Error ? err.message : 'ส่งผลไม่สำเร็จ ลองใหม่อีกครั้ง',
       });
+      return 'error';
     }
-  }, [sessionId, rows, cancelPendingSave]);
+  }, [sessionId, cancelPendingSave, replaceConflicts, replaceRows]);
 
   const dismissSubmit = useCallback(() => setSubmitState({ kind: 'idle' }), []);
 
@@ -289,6 +367,7 @@ export function useLedger(sessionId: string | null) {
     totals: ledgerTotals(rows),
     scanState,
     submitState,
+    catalogConflicts,
     scan,
     setUnitQty,
     bumpUnitQty,

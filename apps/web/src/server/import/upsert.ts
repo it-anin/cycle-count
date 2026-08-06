@@ -33,6 +33,7 @@ import {
 } from '@cycle-count/db';
 
 import { db } from '@/lib/db';
+import { withMasterCatalogWrite, withSessionCatalogWrite } from '@/server/catalog/version';
 
 const BATCH = 500;
 
@@ -58,67 +59,71 @@ export interface UpsertResult {
 export async function upsertProducts(rows: ProductImportRow[]): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => r.sku);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(products)
-      .values(
-        part.map((r) => ({
-          sku: r.sku,
-          name: r.name,
-          baseUom: r.baseUom,
-          category: r.category ?? null,
-          location: r.location ?? null,
-          active: r.active,
-        })),
-      )
-      .onConflictDoUpdate({
-        target: products.sku,
-        set: {
-          name: sql`excluded.name`,
-          baseUom: sql`excluded.base_uom`,
-          category: sql`excluded.category`,
-          location: sql`excluded.location`,
-          active: sql`excluded.active`,
-          updatedAt: new Date(),
-        },
-      });
-  }
+  return withMasterCatalogWrite(async (tx) => {
+    for (const part of chunk(unique)) {
+      await tx
+        .insert(products)
+        .values(
+          part.map((r) => ({
+            sku: r.sku,
+            name: r.name,
+            baseUom: r.baseUom,
+            category: r.category ?? null,
+            location: r.location ?? null,
+            active: r.active,
+          })),
+        )
+        .onConflictDoUpdate({
+          target: products.sku,
+          set: {
+            name: sql`excluded.name`,
+            baseUom: sql`excluded.base_uom`,
+            category: sql`excluded.category`,
+            location: sql`excluded.location`,
+            active: sql`excluded.active`,
+            updatedAt: new Date(),
+          },
+        });
+    }
 
-  return { written: unique.length };
+    return { written: unique.length };
+  });
 }
 
 export async function upsertBarcodes(rows: BarcodeImportRow[]): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => r.barcode);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(barcodes)
-      .values(part.map((r) => ({ barcode: r.barcode, sku: r.sku, uom: r.uom })))
-      .onConflictDoUpdate({
-        target: barcodes.barcode,
-        set: { sku: sql`excluded.sku`, uom: sql`excluded.uom` },
-      });
-  }
+  return withMasterCatalogWrite(async (tx) => {
+    for (const part of chunk(unique)) {
+      await tx
+        .insert(barcodes)
+        .values(part.map((r) => ({ barcode: r.barcode, sku: r.sku, uom: r.uom })))
+        .onConflictDoUpdate({
+          target: barcodes.barcode,
+          set: { sku: sql`excluded.sku`, uom: sql`excluded.uom` },
+        });
+    }
 
-  return { written: unique.length };
+    return { written: unique.length };
+  });
 }
 
 export async function upsertUomConversions(rows: UomImportRow[]): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => `${r.sku}|${r.uom}`);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(uomConversions)
-      .values(
-        part.map((r) => ({ sku: r.sku, uom: r.uom, factorToBase: String(r.factorToBase) })),
-      )
-      .onConflictDoUpdate({
-        target: [uomConversions.sku, uomConversions.uom],
-        set: { factorToBase: sql`excluded.factor_to_base` },
-      });
-  }
+  return withMasterCatalogWrite(async (tx) => {
+    for (const part of chunk(unique)) {
+      await tx
+        .insert(uomConversions)
+        .values(part.map((r) => ({ sku: r.sku, uom: r.uom, factorToBase: String(r.factorToBase) })))
+        .onConflictDoUpdate({
+          target: [uomConversions.sku, uomConversions.uom],
+          set: { factorToBase: sql`excluded.factor_to_base` },
+        });
+    }
 
-  return { written: unique.length };
+    return { written: unique.length };
+  });
 }
 
 /**
@@ -142,7 +147,8 @@ export async function upsertPrices(
   const resolvable = rows.filter((r) => idByName.has(r.priceListName));
   const unique = dedupe(
     resolvable,
-    (r) => `${r.priceListName}|${r.sku}|${r.uom}|${(r.effectiveFrom ?? new Date()).toISOString().slice(0, 10)}`,
+    (r) =>
+      `${r.priceListName}|${r.sku}|${r.uom}|${(r.effectiveFrom ?? new Date()).toISOString().slice(0, 10)}`,
   );
 
   for (const part of chunk(unique)) {
@@ -174,40 +180,46 @@ export async function upsertExpectedStock(
 ): Promise<UpsertResult> {
   const unique = dedupe(rows, (r) => `${r.sku}|${r.uom}`);
 
-  for (const part of chunk(unique)) {
-    await db
-      .insert(expectedStock)
-      .values(
-        part.map((r) => ({
-          sessionId,
-          sku: r.sku,
-          uom: r.uom,
-          expectedQty: String(r.expectedQty),
-        })),
-      )
-      .onConflictDoUpdate({
-        target: [expectedStock.sessionId, expectedStock.sku, expectedStock.uom],
-        set: { expectedQty: sql`excluded.expected_qty` },
-      });
-  }
+  return withSessionCatalogWrite(sessionId, async (tx) => {
+    for (const part of chunk(unique)) {
+      await tx
+        .insert(expectedStock)
+        .values(
+          part.map((r) => ({
+            sessionId,
+            sku: r.sku,
+            uom: r.uom,
+            expectedQty: String(r.expectedQty),
+          })),
+        )
+        .onConflictDoUpdate({
+          target: [expectedStock.sessionId, expectedStock.sku, expectedStock.uom],
+          set: { expectedQty: sql`excluded.expected_qty` },
+        });
+    }
 
-  return { written: unique.length };
+    return { written: unique.length };
+  });
 }
 
 /** ลบยอดตั้งต้นเดิมของรอบก่อน import ทับ — ใช้เมื่อแอดมินเลือก "แทนที่ทั้งหมด" */
 export async function clearExpectedStock(sessionId: string): Promise<void> {
-  await db.delete(expectedStock).where(eq(expectedStock.sessionId, sessionId));
+  await withSessionCatalogWrite(sessionId, async (tx) => {
+    await tx.delete(expectedStock).where(eq(expectedStock.sessionId, sessionId));
+  });
 }
 
 /** ปิดใช้งาน SKU ที่ไม่อยู่ในไฟล์รอบนี้ — ใช้เมื่อไฟล์ที่อัปโหลดคือ master ฉบับเต็ม */
 export async function deactivateMissingProducts(keepSkus: string[]): Promise<number> {
   if (keepSkus.length === 0) return 0;
 
-  const result = await db
-    .update(products)
-    .set({ active: false, updatedAt: new Date() })
-    .where(and(eq(products.active, true), sql`${products.sku} <> ALL(${keepSkus})`))
-    .returning({ sku: products.sku });
+  return withMasterCatalogWrite(async (tx) => {
+    const result = await tx
+      .update(products)
+      .set({ active: false, updatedAt: new Date() })
+      .where(and(eq(products.active, true), sql`${products.sku} <> ALL(${keepSkus})`))
+      .returning({ sku: products.sku });
 
-  return result.length;
+    return result.length;
+  });
 }

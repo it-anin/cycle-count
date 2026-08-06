@@ -66,6 +66,18 @@ export const importStatus = pgEnum('import_status', [
 /*                       Master data (มาจากไฟล์ Excel)                         */
 /* -------------------------------------------------------------------------- */
 
+/**
+ * version กลางของ catalog ที่ PDA ใช้ตรวจว่าข้อมูลในเครื่องยังตรงกับ server
+ *
+ * เก็บเป็น singleton (`master`) และสุ่ม UUID ใหม่ทุกครั้งที่ master data เปลี่ยน
+ * แทนการเดาจากจำนวนแถว/เวลาแก้ล่าสุด ซึ่งตรวจไม่เจอกรณีย้ายบาร์โค้ดหรือแก้ตัวคูณ
+ */
+export const catalogState = pgTable('catalog_state', {
+  key: text('key').primaryKey(),
+  version: uuid('version').notNull().defaultRandom(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).notNull().defaultNow(),
+});
+
 /** SKU master — ไฟล์หลัก */
 export const products = pgTable('products', {
   sku: text('sku').primaryKey(),
@@ -215,6 +227,11 @@ export const countSessions = pgTable(
     /** default เป็น blind เพื่อให้พลาดไปทางที่ปลอดภัย — แอดมินต้องตั้งใจเลือกเปิดยอด */
     mode: countMode('mode').notNull().default('blind'),
     status: sessionStatus('status').notNull().default('draft'),
+    /**
+     * version ของข้อมูลเฉพาะรอบ เช่น mode และ expected_stock snapshot
+     * รวมกับ catalog_state.version เป็น catalogVersion ที่ส่งให้ PDA
+     */
+    catalogVersion: uuid('catalog_version').notNull().defaultRandom(),
     priceListId: uuid('price_list_id').references(() => priceLists.id, { onDelete: 'set null' }),
     /**
      * เวลาที่ถ่าย snapshot ยอดตั้งต้น = **cut-off ของรอบนับ**
@@ -316,7 +333,9 @@ export const importBatches = pgTable('import_batches', {
   status: importStatus('status').notNull().default('pending'),
   rowCount: integer('row_count').notNull().default(0),
   errorCount: integer('error_count').notNull().default(0),
-  errors: jsonb('errors').$type<ImportRowError[]>().default(sql`'[]'::jsonb`),
+  errors: jsonb('errors')
+    .$type<ImportRowError[]>()
+    .default(sql`'[]'::jsonb`),
   createdBy: uuid('created_by'),
   createdAt: timestamp('created_at', { withTimezone: true }).notNull().defaultNow(),
 });
@@ -386,6 +405,7 @@ export const countLinesRelations = relations(countLines, ({ one }) => ({
 
 export type Product = typeof products.$inferSelect;
 export type NewProduct = typeof products.$inferInsert;
+export type CatalogState = typeof catalogState.$inferSelect;
 export type Barcode = typeof barcodes.$inferSelect;
 export type UomConversion = typeof uomConversions.$inferSelect;
 export type PriceList = typeof priceLists.$inferSelect;

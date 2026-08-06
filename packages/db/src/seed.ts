@@ -16,6 +16,7 @@ try {
 
 const { createDb } = await import('./client');
 const schema = await import('./schema');
+const { inArray, sql } = await import('drizzle-orm');
 
 const url = process.env.DIRECT_URL ?? process.env.DATABASE_URL;
 if (!url) throw new Error('DIRECT_URL or DATABASE_URL must be set');
@@ -139,6 +140,15 @@ async function main() {
     }
   }
   await db.insert(schema.expectedStock).values(expectedBatch);
+
+  /* seed เขียน catalog ตรง จึงต้องหมุน version เหมือน write path ฝั่งเว็บ */
+  await db
+    .update(schema.catalogState)
+    .set({ version: sql`gen_random_uuid()`, updatedAt: new Date() });
+  await db
+    .update(schema.countSessions)
+    .set({ catalogVersion: sql`gen_random_uuid()` })
+    .where(inArray(schema.countSessions.id, [session!.id, recountSession!.id]));
 
   console.log(`Seed เสร็จสิ้น ✔  (blind: ${session!.code}, recount: ${recountSession!.code})`);
   process.exit(0);

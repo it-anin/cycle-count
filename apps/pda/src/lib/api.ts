@@ -15,12 +15,7 @@
  *   GET  /api/pda/catalog?sessionId=... → { sessionId, generatedAt, entries }
  *   POST /api/pda/count-lines           → { saved }
  */
-import type {
-  BarcodeLookup,
-  CountLinePayload,
-  CountMode,
-  SubmitVariance,
-} from '@cycle-count/core';
+import type { BarcodeLookup, CountLinePayload, CountMode, SubmitVariance } from '@cycle-count/core';
 import { authEmailForEmployee } from '@cycle-count/core';
 
 import { indexEntries, readCatalog, writeCatalog, type CatalogSnapshot } from './catalogCache';
@@ -43,6 +38,8 @@ export interface SessionInfo {
 
 export interface CatalogStatus {
   entryCount: number;
+  /** version เดียวกับที่ต้องส่งกลับไปตอน submit */
+  catalogVersion: string;
   /** true = ใช้ของเดิมในเครื่อง ไม่ได้โหลดใหม่ */
   fromCache: boolean;
 }
@@ -51,6 +48,13 @@ export interface SubmitResult {
   saved: number;
   /** ใบเฉลยผลต่าง — server คำนวณให้หลังบันทึกเสร็จ ไม่ได้คิดในเครื่อง */
   variance: SubmitVariance;
+}
+
+export class CatalogStaleError extends Error {
+  constructor(readonly currentVersion: string | null) {
+    super('รายการสินค้าในระบบมีการอัปเดต กรุณาตรวจสอบก่อนส่งอีกครั้ง');
+    this.name = 'CatalogStaleError';
+  }
 }
 
 export interface CountApi {
@@ -62,7 +66,12 @@ export interface CountApi {
   bootstrap(): Promise<{ user: CurrentUser; session: SessionInfo }>;
   /** โหลด catalog ของรอบนับลงเครื่อง เรียกครั้งเดียวตอนเปิดรอบ */
   loadCatalog(sessionId: string): Promise<CatalogStatus>;
-  submit(input: { sessionId: string; lines: CountLinePayload[] }): Promise<SubmitResult>;
+  submit(input: {
+    sessionId: string;
+    /** optional เพื่อให้ mock/โค้ดเก่าที่ยังไม่พก version ใช้ interface เดิมได้ */
+    catalogVersion?: string;
+    lines: CountLinePayload[];
+  }): Promise<SubmitResult>;
 }
 
 /* -------------------------------------------------------------------------- */
@@ -248,7 +257,7 @@ export const mockApi: CountApi = {
   async loadCatalog() {
     await delay(250);
     catalogIndex = indexEntries(MOCK_ENTRIES);
-    return { entryCount: catalogIndex.size, fromCache: false };
+    return { entryCount: catalogIndex.size, catalogVersion: 'mock-catalog-v1', fromCache: false };
   },
 
   async submit({ lines }) {
@@ -318,11 +327,16 @@ export const mockBarcodes = MOCK_ENTRIES.map((e) => e.barcode);
 
 async function json<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const detail = await res
+    const body = await res
       .json()
-      .then((b: { error?: string }) => b.error)
+      .then((value: unknown) => value as { code?: string; error?: string; currentVersion?: string })
       .catch(() => null);
-    throw new Error(detail ?? `${res.status} ${res.statusText}`);
+
+    if (res.status === 409 && body?.code === 'CATALOG_STALE') {
+      throw new CatalogStaleError(body.currentVersion ?? null);
+    }
+
+    throw new Error(body?.error ?? `${res.status} ${res.statusText}`);
   }
   return (await res.json()) as T;
 }
@@ -389,7 +403,7 @@ export function createHttpApi(baseUrl: string): CountApi {
         {
           headers: {
             ...(await authHeaders()),
-            ...(cached?.etag ? { 'if-none-match': cached.etag } : {}),
+            ...(cached?.catalogVersion && cached.etag ? { 'if-none-match': cached.etag } : {}),
           },
         },
       );
@@ -397,7 +411,11 @@ export function createHttpApi(baseUrl: string): CountApi {
       // master ไม่เปลี่ยนตั้งแต่โหลดครั้งก่อน — ใช้ของในเครื่องต่อได้เลย
       if (res.status === 304 && cached) {
         catalogIndex = indexEntries(cached.entries);
-        return { entryCount: catalogIndex.size, fromCache: true };
+        return {
+          entryCount: catalogIndex.size,
+          catalogVersion: cached.catalogVersion,
+          fromCache: true,
+        };
       }
 
       const body = await json<Omit<CatalogSnapshot, 'etag'>>(res);
@@ -406,7 +424,11 @@ export function createHttpApi(baseUrl: string): CountApi {
       catalogIndex = indexEntries(snapshot.entries);
       await writeCatalog(snapshot);
 
-      return { entryCount: catalogIndex.size, fromCache: false };
+      return {
+        entryCount: catalogIndex.size,
+        catalogVersion: snapshot.catalogVersion,
+        fromCache: false,
+      };
     },
 
     async submit(input) {

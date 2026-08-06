@@ -18,6 +18,7 @@ import { sql } from 'drizzle-orm';
 import { PROBE_SKU } from '@cycle-count/db';
 
 import { db } from '@/lib/db';
+import { withMasterCatalogWrite, withSessionCatalogWrite } from '@/server/catalog/version';
 
 /**
  * แปลง text เป็น numeric แบบไม่ระเบิด
@@ -26,7 +27,9 @@ import { db } from '@/lib/db';
  * และ snapshot ของทั้งรอบนับก็พังไปด้วย — กันด้วย regex ก่อน cast
  */
 const numericOrZero = (col: string) =>
-  sql.raw(`CASE WHEN btrim(${col}) ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN btrim(${col})::numeric ELSE 0 END`);
+  sql.raw(
+    `CASE WHEN btrim(${col}) ~ '^-?[0-9]+(\\.[0-9]+)?$' THEN btrim(${col})::numeric ELSE 0 END`,
+  );
 
 /** เงื่อนไขกรองแถวขยะที่ใช้ร่วมกันทุก query */
 const CLEAN_ROWS = sql.raw(`
@@ -51,8 +54,9 @@ export interface SyncCatalogResult {
  *   public.product_master ข้อมูลสินค้าละเอียด      → cycle_count.products + uom_conversions
  */
 export async function syncCatalog(): Promise<SyncCatalogResult> {
-  // 1) สินค้า — เอา product_master เป็นหลัก แล้วเติมด้วย SKU ที่มีเฉพาะใน products
-  const products = await db.execute(sql`
+  return withMasterCatalogWrite(async (tx) => {
+    // 1) สินค้า — เอา product_master เป็นหลัก แล้วเติมด้วย SKU ที่มีเฉพาะใน products
+    const products = await tx.execute(sql`
     INSERT INTO cycle_count.products (sku, name, base_uom, category, updated_at)
     SELECT
       btrim(m.sku),
@@ -71,7 +75,7 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
       updated_at = now()
   `);
 
-  const extraProducts = await db.execute(sql`
+    const extraProducts = await tx.execute(sql`
     INSERT INTO cycle_count.products (sku, name, base_uom, updated_at)
     SELECT DISTINCT ON (btrim(p.sku))
       btrim(p.sku),
@@ -86,14 +90,14 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     ON CONFLICT (sku) DO NOTHING
   `);
 
-  /*
-   * 2) หน่วยฐานของแต่ละ SKU — เอาจาก barcode_units ที่ตัวคูณ = 1
-   *
-   *    เชื่อไฟล์ R05106 มากกว่า product_master.base_unit เพราะเป็นแหล่งเดียวกับตัวคูณ
-   *    ตรวจกับไฟล์จริงแล้วทุก SKU มีหน่วยตัวคูณ = 1 เสมอ (0 SKU ที่ไม่มี)
-   *    บาง SKU มีสองบาร์โค้ดที่ตัวคูณ = 1 (หน่วยเดียวกัน คนละบาร์โค้ด) — DISTINCT ON เลือกให้แน่นอน
-   */
-  const baseUnits = await db.execute(sql`
+    /*
+     * 2) หน่วยฐานของแต่ละ SKU — เอาจาก barcode_units ที่ตัวคูณ = 1
+     *
+     *    เชื่อไฟล์ R05106 มากกว่า product_master.base_unit เพราะเป็นแหล่งเดียวกับตัวคูณ
+     *    ตรวจกับไฟล์จริงแล้วทุก SKU มีหน่วยตัวคูณ = 1 เสมอ (0 SKU ที่ไม่มี)
+     *    บาง SKU มีสองบาร์โค้ดที่ตัวคูณ = 1 (หน่วยเดียวกัน คนละบาร์โค้ด) — DISTINCT ON เลือกให้แน่นอน
+     */
+    const baseUnits = await tx.execute(sql`
     UPDATE cycle_count.products cp
     SET base_uom = b.uom, updated_at = now()
     FROM (
@@ -105,11 +109,11 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     WHERE cp.sku = b.sku AND cp.base_uom <> b.uom
   `);
 
-  /*
-   * 3) บาร์โค้ด — barcode_units เป็นแหล่งหลักเพราะมีตัวคูณติดมาด้วย
-   *    public.products ไม่มีตัวคูณ ใช้เติมเฉพาะบาร์โค้ดที่ไม่มีในไฟล์ (ตัวคูณถือเป็น 1)
-   */
-  const barcodesFromUnits = await db.execute(sql`
+    /*
+     * 3) บาร์โค้ด — barcode_units เป็นแหล่งหลักเพราะมีตัวคูณติดมาด้วย
+     *    public.products ไม่มีตัวคูณ ใช้เติมเฉพาะบาร์โค้ดที่ไม่มีในไฟล์ (ตัวคูณถือเป็น 1)
+     */
+    const barcodesFromUnits = await tx.execute(sql`
     INSERT INTO cycle_count.barcodes (barcode, sku, uom)
     SELECT bu.barcode, bu.sku, bu.uom
     FROM cycle_count.barcode_units bu
@@ -117,7 +121,7 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     ON CONFLICT (barcode) DO UPDATE SET sku = excluded.sku, uom = excluded.uom
   `);
 
-  const barcodesFromProducts = await db.execute(sql`
+    const barcodesFromProducts = await tx.execute(sql`
     INSERT INTO cycle_count.barcodes (barcode, sku, uom)
     SELECT DISTINCT ON (btrim(p.barcode))
       btrim(p.barcode),
@@ -133,14 +137,14 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     ON CONFLICT (barcode) DO NOTHING
   `);
 
-  /*
-   * 4) การแปลงหน่วย — ตัวคูณรายบาร์โค้ดจาก R05106
-   *
-   *    product_master.multiply ใช้ไม่ได้เพราะเก็บได้ค่าเดียวต่อ SKU
-   *    แต่ของจริง SKU หนึ่งมีได้หลายหน่วยที่ตัวคูณต่างกัน
-   *    เช่น 100098 = แผง(1) / 10แผง(10) / โหล(12) / กล่อง(50)
-   */
-  const uomFromUnits = await db.execute(sql`
+    /*
+     * 4) การแปลงหน่วย — ตัวคูณรายบาร์โค้ดจาก R05106
+     *
+     *    product_master.multiply ใช้ไม่ได้เพราะเก็บได้ค่าเดียวต่อ SKU
+     *    แต่ของจริง SKU หนึ่งมีได้หลายหน่วยที่ตัวคูณต่างกัน
+     *    เช่น 100098 = แผง(1) / 10แผง(10) / โหล(12) / กล่อง(50)
+     */
+    const uomFromUnits = await tx.execute(sql`
     INSERT INTO cycle_count.uom_conversions (sku, uom, factor_to_base)
     SELECT DISTINCT ON (bu.sku, bu.uom) bu.sku, bu.uom, bu.factor_to_base
     FROM cycle_count.barcode_units bu
@@ -149,12 +153,12 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     ON CONFLICT (sku, uom) DO UPDATE SET factor_to_base = excluded.factor_to_base
   `);
 
-  /*
-   * 5) หน่วยที่โผล่ที่อื่นแต่ไม่มีในไฟล์ตัวคูณ — ใส่ 1 ไว้ก่อน
-   *    หน่วยฐานเองก็ต้องมีแถว factor = 1 ด้วย ไม่งั้น snapshot คูณไม่ได้
-   *    ใช้ DO NOTHING เพื่อไม่ทับค่าจริงจาก R05106
-   */
-  const uomFallback = await db.execute(sql`
+    /*
+     * 5) หน่วยที่โผล่ที่อื่นแต่ไม่มีในไฟล์ตัวคูณ — ใส่ 1 ไว้ก่อน
+     *    หน่วยฐานเองก็ต้องมีแถว factor = 1 ด้วย ไม่งั้น snapshot คูณไม่ได้
+     *    ใช้ DO NOTHING เพื่อไม่ทับค่าจริงจาก R05106
+     */
+    const uomFallback = await tx.execute(sql`
     INSERT INTO cycle_count.uom_conversions (sku, uom, factor_to_base)
     SELECT sku, uom, 1 FROM (
       SELECT sku, base_uom AS uom FROM cycle_count.products
@@ -169,11 +173,12 @@ export async function syncCatalog(): Promise<SyncCatalogResult> {
     ON CONFLICT (sku, uom) DO NOTHING
   `);
 
-  return {
-    products: rowCount(products) + rowCount(extraProducts) + rowCount(baseUnits),
-    barcodes: rowCount(barcodesFromUnits) + rowCount(barcodesFromProducts),
-    uomConversions: rowCount(uomFromUnits) + rowCount(uomFallback),
-  };
+    return {
+      products: rowCount(products) + rowCount(extraProducts) + rowCount(baseUnits),
+      barcodes: rowCount(barcodesFromUnits) + rowCount(barcodesFromProducts),
+      uomConversions: rowCount(uomFromUnits) + rowCount(uomFallback),
+    };
+  });
 }
 
 export interface SnapshotResult {
@@ -189,17 +194,15 @@ export interface SnapshotResult {
  * เรียกครั้งเดียวตอนเปิดรอบ เรียกซ้ำจะทับของเดิมและ **เลื่อน cut-off** —
  * ทำได้เฉพาะตอนที่รอบยังไม่มีใครนับ
  */
-export async function snapshotExpected(
-  sessionId: string,
-  branch: string,
-): Promise<SnapshotResult> {
-  const snapshotAt = new Date();
+export async function snapshotExpected(sessionId: string, branch: string): Promise<SnapshotResult> {
+  return withSessionCatalogWrite(sessionId, async (tx) => {
+    const snapshotAt = new Date();
 
-  /*
-   * รวมยอดด้วย SUM เผื่อสาขาเดียวกันมีหลายแถวต่อ sku+unit
-   * (สคริปต์ sync อาจ append ไม่ได้ replace) — ถ้าไม่รวมจะชน PK ของ expected_stock
-   */
-  const inserted = await db.execute(sql`
+    /*
+     * รวมยอดด้วย SUM เผื่อสาขาเดียวกันมีหลายแถวต่อ sku+unit
+     * (สคริปต์ sync อาจ append ไม่ได้ replace) — ถ้าไม่รวมจะชน PK ของ expected_stock
+     */
+    const inserted = await tx.execute(sql`
     INSERT INTO cycle_count.expected_stock (session_id, sku, uom, expected_qty)
     SELECT
       ${sessionId}::uuid,
@@ -214,8 +217,8 @@ export async function snapshotExpected(
     ON CONFLICT (session_id, sku, uom) DO UPDATE SET expected_qty = excluded.expected_qty
   `);
 
-  // SKU ที่มีของแต่ไม่รู้จัก — ไม่ควรเงียบ เพราะแปลว่า master ไม่ครบ
-  const unknown = await db.execute(sql`
+    // SKU ที่มีของแต่ไม่รู้จัก — ไม่ควรเงียบ เพราะแปลว่า master ไม่ครบ
+    const unknown = await tx.execute(sql`
     SELECT count(DISTINCT btrim(s.sku))::int AS n
     FROM public.stock s
     LEFT JOIN cycle_count.products cp ON cp.sku = btrim(s.sku)
@@ -224,7 +227,7 @@ export async function snapshotExpected(
       AND cp.sku IS NULL
   `);
 
-  await db.execute(sql`
+    await tx.execute(sql`
     UPDATE cycle_count.count_sessions
     SET snapshot_at = ${snapshotAt.toISOString()}::timestamptz,
         expected_source = 'public.stock',
@@ -232,11 +235,12 @@ export async function snapshotExpected(
     WHERE id = ${sessionId}::uuid
   `);
 
-  return {
-    rows: rowCount(inserted),
-    snapshotAt,
-    skippedUnknownSkus: Number((unknown as unknown as { n: number }[])[0]?.n ?? 0),
-  };
+    return {
+      rows: rowCount(inserted),
+      snapshotAt,
+      skippedUnknownSkus: Number((unknown as unknown as { n: number }[])[0]?.n ?? 0),
+    };
+  });
 }
 
 /** รายชื่อสาขาที่มีในระบบสต็อก ให้แอดมินเลือกตอนเปิดรอบ */

@@ -86,6 +86,7 @@ export default function App() {
           user={boot.user}
           session={boot.session}
           catalogCount={boot.catalog.entryCount}
+          catalogVersion={boot.catalog.catalogVersion}
           onSignOut={async () => {
             await api.signOut();
             setBoot({ kind: 'signed-out' });

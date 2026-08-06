@@ -68,6 +68,95 @@ export interface LedgerRow {
   flagged: boolean;
 }
 
+export type CatalogConflictReason =
+  | 'barcode_removed'
+  | 'became_known'
+  | 'sku_changed'
+  | 'uom_changed'
+  | 'factor_changed'
+  | 'base_uom_changed';
+
+/** รายการในสมุดที่ตีความด้วย catalog ใหม่ไม่ได้อย่างปลอดภัย */
+export interface CatalogConflict {
+  rowKey: string;
+  name: string;
+  barcode: string;
+  uom: string;
+  reason: CatalogConflictReason;
+  latest: BarcodeLookup | null;
+}
+
+export interface LedgerCatalogReconciliation {
+  rows: LedgerRow[];
+  conflicts: CatalogConflict[];
+}
+
+/**
+ * เทียบสมุดที่อาจสร้างจาก catalog เก่ากับ index ล่าสุด
+ *
+ * เปลี่ยนชื่อ/ตำแหน่ง/ยอดตั้งต้นได้โดยไม่เปลี่ยนความหมายของจำนวน จึง hydrate ให้ใหม่ได้เลย
+ * แต่ SKU, หน่วย, factor, หน่วยฐาน และ known/unknown กระทบการคำนวณ ต้องให้คนนับลบ
+ * หน่วยนั้นแล้วนับใหม่ ห้ามเดาหรือแปลงยอดให้อัตโนมัติ
+ */
+export function reconcileLedgerCatalog(
+  rows: LedgerRow[],
+  latestByBarcode: (barcode: string) => BarcodeLookup | null,
+): LedgerCatalogReconciliation {
+  const conflicts: CatalogConflict[] = [];
+
+  const nextRows = rows.map((row) => {
+    const hits: BarcodeLookup[] = [];
+    const rowConflicts: CatalogConflict[] = [];
+
+    for (const unit of row.units) {
+      const latest = latestByBarcode(unit.lastBarcode);
+      if (latest) hits.push(latest);
+
+      let reason: CatalogConflictReason | null = null;
+      if (row.flagged || row.sku === null) {
+        if (latest) reason = 'became_known';
+      } else if (!latest) {
+        reason = 'barcode_removed';
+      } else if (latest.sku !== row.sku) {
+        reason = 'sku_changed';
+      } else if (latest.uom !== unit.uom) {
+        reason = 'uom_changed';
+      } else if (latest.factorToBase !== unit.factorToBase) {
+        reason = 'factor_changed';
+      } else if (latest.baseUom !== row.baseUom) {
+        reason = 'base_uom_changed';
+      }
+
+      if (reason) {
+        rowConflicts.push({
+          rowKey: row.key,
+          name: row.name,
+          barcode: unit.lastBarcode,
+          uom: unit.uom,
+          reason,
+          latest,
+        });
+      }
+    }
+
+    conflicts.push(...rowConflicts);
+    if (rowConflicts.length > 0 || row.flagged || row.sku === null) return row;
+
+    const latest = hits[0];
+    if (!latest) return row;
+
+    return {
+      ...row,
+      name: latest.name,
+      baseUom: latest.baseUom,
+      expectedBaseQty: latest.expectedBaseQty,
+      location: latest.location,
+    };
+  });
+
+  return { rows: nextRows, conflicts };
+}
+
 export type VarianceKind = 'match' | 'short' | 'over' | 'unknown';
 
 export interface LedgerTotals {

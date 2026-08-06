@@ -12,6 +12,8 @@ import type { BarcodeLookup } from '@cycle-count/core';
 export interface CatalogSnapshot {
   sessionId: string;
   generatedAt: string;
+  /** version ที่ server ใช้ตรวจแบบ atomic ตอนส่งผลนับ */
+  catalogVersion: string;
   /** ETag จาก server — ส่งกลับไปเป็น If-None-Match เพื่อขอแค่ 304 */
   etag: string | null;
   entries: BarcodeLookup[];
@@ -34,7 +36,10 @@ function openDb(): Promise<IDBDatabase> {
   });
 }
 
-function tx<T>(mode: IDBTransactionMode, run: (store: IDBObjectStore) => IDBRequest<T>): Promise<T> {
+function tx<T>(
+  mode: IDBTransactionMode,
+  run: (store: IDBObjectStore) => IDBRequest<T>,
+): Promise<T> {
   return openDb().then(
     (db) =>
       new Promise<T>((resolve, reject) => {

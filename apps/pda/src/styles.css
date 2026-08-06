@@ -416,6 +416,11 @@ button {
   outline: none;
 }
 
+.cc-scan__input:disabled {
+  color: var(--short);
+  opacity: 1;
+}
+
 .cc-scan__hint {
   flex: none;
   font-size: 12.5px;
@@ -550,12 +555,16 @@ button {
 }
 
 .cc-row--flagged .cc-row__stripe {
-  background: repeating-linear-gradient(
-    45deg,
-    var(--short) 0 4px,
-    transparent 4px 8px
-  );
+  background: repeating-linear-gradient(45deg, var(--short) 0 4px, transparent 4px 8px);
   background-color: #f4c4bf;
+}
+
+.cc-row--catalog-conflict {
+  background: #fff1ef;
+}
+
+.cc-row--catalog-conflict .cc-row__stripe {
+  background: var(--short);
 }
 
 .cc-row__main {
@@ -627,6 +636,13 @@ button {
   box-shadow: inset 0 0 0 1px var(--amber);
 }
 
+.cc-unit--catalog-conflict {
+  border-color: var(--short);
+  color: var(--short);
+  background: #fff;
+  box-shadow: inset 0 0 0 1px var(--short);
+}
+
 .cc-row__base {
   font-family: var(--mono);
   font-size: 12.5px;
@@ -645,6 +661,14 @@ button {
 
 .cc-row--flagged .cc-row__name {
   color: var(--short);
+  font-weight: 700;
+}
+
+.cc-row__catalog-warn {
+  display: block;
+  margin-top: 2px;
+  color: var(--short);
+  font-size: 11.5px;
   font-weight: 700;
 }
 
@@ -832,6 +856,15 @@ button {
   color: var(--ink3);
 }
 
+.cc-pad__catalog-warn {
+  margin: 0;
+  padding: 7px 14px;
+  color: var(--short);
+  background: #fff1ef;
+  font-size: 12.5px;
+  font-weight: 700;
+}
+
 .cc-pad__grid {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
@@ -852,6 +885,11 @@ button {
 
 .cc-key:active {
   background: var(--amber-wash);
+}
+
+.cc-key:disabled {
+  color: var(--ink3);
+  background: #e9edf0;
 }
 
 .cc-key--fn {
@@ -971,6 +1009,47 @@ button {
   font-size: 12px;
   background: #fff;
   padding: 1px 5px;
+}
+
+.cc-catalog-conflicts {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  max-height: 260px;
+  overflow-y: auto;
+  border: 1px solid var(--line);
+}
+
+.cc-catalog-conflicts li {
+  display: grid;
+  gap: 2px;
+  padding: 9px 11px;
+  border-bottom: 1px solid var(--line);
+}
+
+.cc-catalog-conflicts li:last-child {
+  border-bottom: 0;
+}
+
+.cc-catalog-conflicts b {
+  font-size: 13px;
+}
+
+.cc-catalog-conflicts span {
+  font-family: var(--mono);
+  font-size: 11.5px;
+  color: var(--ink2);
+}
+
+.cc-catalog-conflicts em {
+  color: var(--short);
+  font-size: 12px;
+  font-style: normal;
+  font-weight: 700;
+}
+
+.cc-catalog-conflicts + .cc-sheet__btns {
+  grid-template-columns: 1fr;
 }
 
 /* ── รายการ extra ของ broadcast ตอนยังหาคีย์บาร์โค้ดไม่เจอ ──── */

@@ -11,7 +11,12 @@
  */
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
-import { countedBaseQty, varianceKind, type LedgerRow } from '@cycle-count/core';
+import {
+  countedBaseQty,
+  varianceKind,
+  type CatalogConflict,
+  type LedgerRow,
+} from '@cycle-count/core';
 
 import { mockBarcodes, usingMock, type CurrentUser, type SessionInfo } from '../lib/api';
 import { nativeScannerAvailable, SCAN_ACTION } from '../lib/nativeScanner';
@@ -23,11 +28,29 @@ interface Props {
   session: SessionInfo;
   /** จำนวนบาร์โค้ดที่โหลดลงเครื่องแล้ว — ยืนยันให้คนนับเห็นว่า catalog พร้อม */
   catalogCount: number;
+  /** version ที่ต้องตรงกับ server ตอนส่ง */
+  catalogVersion: string;
   onSignOut: () => Promise<void>;
 }
 
-const num = (n: number) =>
-  n.toLocaleString('th-TH', { maximumFractionDigits: 4 });
+const num = (n: number) => n.toLocaleString('th-TH', { maximumFractionDigits: 4 });
+
+function catalogConflictText(conflict: CatalogConflict): string {
+  switch (conflict.reason) {
+    case 'barcode_removed':
+      return 'บาร์โค้ดถูกนำออกจาก master';
+    case 'became_known':
+      return `เดิมไม่พบสินค้า ปัจจุบันเป็น SKU ${conflict.latest?.sku ?? '—'}`;
+    case 'sku_changed':
+      return `เปลี่ยนเป็น SKU ${conflict.latest?.sku ?? '—'}`;
+    case 'uom_changed':
+      return `เปลี่ยนหน่วยเป็น ${conflict.latest?.uom ?? '—'}`;
+    case 'factor_changed':
+      return `เปลี่ยนตัวคูณเป็น ×${num(conflict.latest?.factorToBase ?? 0)}`;
+    case 'base_uom_changed':
+      return `เปลี่ยนหน่วยฐานเป็น ${conflict.latest?.baseUom ?? '—'}`;
+  }
+}
 
 function varianceLabel(row: LedgerRow): { text: string; kind: string } {
   const kind = varianceKind(row);
@@ -50,6 +73,8 @@ interface RowProps {
   isEditing: boolean;
   /** หน่วยที่กำลังแก้อยู่ในแถวนี้ — null เมื่อไม่ได้แก้แถวนี้ */
   editingUom: string | null;
+  hasCatalogConflict: boolean;
+  conflictingUoms?: ReadonlySet<string>;
   onPickUnit: (key: string, uom: string) => void;
 }
 
@@ -71,6 +96,8 @@ const LedgerRowView = memo(function LedgerRowView({
   isNewest,
   isEditing,
   editingUom,
+  hasCatalogConflict,
+  conflictingUoms,
   onPickUnit,
 }: RowProps) {
   const v = varianceLabel(row);
@@ -83,6 +110,7 @@ const LedgerRowView = memo(function LedgerRowView({
         isNewest && !isEditing ? 'cc-row--new' : '',
         isEditing ? 'cc-row--editing' : '',
         row.flagged ? 'cc-row--flagged' : '',
+        hasCatalogConflict ? 'cc-row--catalog-conflict' : '',
       ]
         .filter(Boolean)
         .join(' ')}
@@ -98,12 +126,21 @@ const LedgerRowView = memo(function LedgerRowView({
           {row.location && <span className="cc-row__loc">{row.location}</span>}
         </span>
         <span className="cc-row__name">{row.name}</span>
+        {hasCatalogConflict && (
+          <span className="cc-row__catalog-warn">ข้อมูลเปลี่ยน · ต้องนับใหม่</span>
+        )}
         <span className="cc-row__units">
           {row.units.map((u) => (
             <button
               key={u.uom}
               type="button"
-              className={`cc-unit ${editingUom === u.uom ? 'cc-unit--on' : ''}`}
+              className={[
+                'cc-unit',
+                editingUom === u.uom ? 'cc-unit--on' : '',
+                conflictingUoms?.has(u.uom) ? 'cc-unit--catalog-conflict' : '',
+              ]
+                .filter(Boolean)
+                .join(' ')}
               onClick={() => onPickUnit(row.key, u.uom)}
             >
               <b>{num(u.qty)}</b> {u.uom}
@@ -123,7 +160,13 @@ const LedgerRowView = memo(function LedgerRowView({
   );
 });
 
-export default function CountLedgerScreen({ user, session, catalogCount, onSignOut }: Props) {
+export default function CountLedgerScreen({
+  user,
+  session,
+  catalogCount,
+  catalogVersion,
+  onSignOut,
+}: Props) {
   /**
    * รอบ blind ไม่มียอดระบบให้เทียบ — ตัดคอลัมน์ผลต่างออกทั้งคอลัมน์
    * ดีกว่าโชว์ `—` ทุกแถวซึ่งกินที่ฟรีและชวนให้คนนับสงสัยว่าระบบเสีย
@@ -135,13 +178,14 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
     totals,
     scanState,
     submitState,
+    catalogConflicts,
     scan,
     setUnitQty,
     bumpUnitQty,
     removeUnit,
     submit,
     dismissSubmit,
-  } = useLedger(session.id);
+  } = useLedger(session.id, catalogVersion);
 
   const [typed, setTyped] = useState('');
   const [manualEntry, setManualEntry] = useState(false);
@@ -150,8 +194,10 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
   const [edit, setEdit] = useState<{ key: string; uom: string; pristine: boolean } | null>(null);
   const [confirming, setConfirming] = useState(false);
   const [leaving, setLeaving] = useState(false);
+  const [catalogNoticeOpen, setCatalogNoticeOpen] = useState(false);
   const scanRef = useRef<HTMLInputElement>(null);
   const rowsRef = useRef<HTMLDivElement>(null);
+  const previousConflictCount = useRef(0);
 
   const editRow = useMemo(
     () => (edit ? (rows.find((r) => r.key === edit.key) ?? null) : null),
@@ -167,8 +213,30 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
     if (edit && !editUnit) setEdit(null);
   }, [edit, editUnit]);
 
-  const busy = edit !== null || confirming || leaving;
+  const busy = edit !== null || confirming || leaving || catalogNoticeOpen;
   const scanDiag = useScanDiagnostics();
+
+  const conflictUomsByRow = useMemo(() => {
+    const result = new Map<string, Set<string>>();
+    for (const conflict of catalogConflicts) {
+      const uoms = result.get(conflict.rowKey) ?? new Set<string>();
+      uoms.add(conflict.uom);
+      result.set(conflict.rowKey, uoms);
+    }
+    return result;
+  }, [catalogConflicts]);
+  const editHasConflict =
+    edit !== null &&
+    catalogConflicts.some((conflict) => conflict.rowKey === edit.key && conflict.uom === edit.uom);
+
+  useEffect(() => {
+    if (previousConflictCount.current === 0 && catalogConflicts.length > 0) {
+      setCatalogNoticeOpen(true);
+    } else if (catalogConflicts.length === 0) {
+      setCatalogNoticeOpen(false);
+    }
+    previousConflictCount.current = catalogConflicts.length;
+  }, [catalogConflicts.length]);
 
   /** ต้องนิ่งข้าม render ไม่งั้น memo() ของ LedgerRowView จะพังทุกแถว */
   const pickUnit = useCallback((key: string, uom: string) => {
@@ -198,7 +266,7 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
       if (edit) setEdit(null);
     },
     {
-      enabled: nativeScannerAvailable || (!busy && !scanFocused),
+      enabled: catalogConflicts.length === 0 && (nativeScannerAvailable || (!busy && !scanFocused)),
       onUnrecognized: scanDiag.onUnrecognized,
     },
   );
@@ -235,6 +303,13 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
   }
 
   const scanHint = (() => {
+    if (catalogConflicts.length > 0) {
+      return {
+        text: `ข้อมูลเปลี่ยน ${catalogConflicts.length} หน่วย · ลบรายการสีแดงแล้วนับใหม่`,
+        tone: 'bad' as const,
+      };
+    }
+
     switch (scanState.kind) {
       case 'locked':
         return {
@@ -292,7 +367,14 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
           autoComplete="off"
           autoCorrect="off"
           spellCheck={false}
-          placeholder={nativeScannerAvailable ? 'ยิงบาร์โค้ด หรือแตะเพื่อคีย์เอง' : 'ยิงบาร์โค้ด'}
+          disabled={catalogConflicts.length > 0}
+          placeholder={
+            catalogConflicts.length > 0
+              ? 'ต้องแก้รายการที่ข้อมูลเปลี่ยนก่อน'
+              : nativeScannerAvailable
+                ? 'ยิงบาร์โค้ด หรือแตะเพื่อคีย์เอง'
+                : 'ยิงบาร์โค้ด'
+          }
           aria-label="ช่องสแกนบาร์โค้ด"
           onChange={(e) => setTyped(e.target.value)}
           onFocus={() => setScanFocused(true)}
@@ -310,6 +392,7 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
             type="button"
             className="cc-scan__manual"
             aria-label="คีย์บาร์โค้ดเอง"
+            disabled={catalogConflicts.length > 0}
             onClick={() => {
               setManualEntry(true);
               scanRef.current?.focus();
@@ -350,6 +433,8 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
               isNewest={i === 0}
               isEditing={edit?.key === row.key}
               editingUom={edit?.key === row.key ? edit.uom : null}
+              hasCatalogConflict={conflictUomsByRow.has(row.key)}
+              conflictingUoms={conflictUomsByRow.get(row.key)}
               onPickUnit={pickUnit}
             />
           ))
@@ -365,28 +450,58 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
             <span className="cc-pad__val">
               {num(editUnit.qty)} <i>{editUnit.uom}</i>
               {editUnit.factorToBase !== 1 && (
-                <i> = {num(editUnit.qty * editUnit.factorToBase)} {editRow.baseUom}</i>
+                <i>
+                  {' '}
+                  = {num(editUnit.qty * editUnit.factorToBase)} {editRow.baseUom}
+                </i>
               )}
             </span>
           </div>
+          {editHasConflict && (
+            <p className="cc-pad__catalog-warn">
+              ข้อมูลของหน่วยนี้เปลี่ยนใน master กรุณาลบหน่วยแล้วสแกนและนับใหม่
+            </p>
+          )}
           <div className="cc-pad__grid">
             {['1', '2', '3', '4', '5', '6', '7', '8', '9', '0'].map((d) => (
-              <button key={d} type="button" className="cc-key" onClick={() => pressDigit(d)}>
+              <button
+                key={d}
+                type="button"
+                className="cc-key"
+                disabled={catalogConflicts.length > 0}
+                onClick={() => pressDigit(d)}
+              >
                 {d}
               </button>
             ))}
-            <button type="button" className="cc-key cc-key--fn" onClick={() => pressBump(-1)}>
+            <button
+              type="button"
+              className="cc-key cc-key--fn"
+              disabled={catalogConflicts.length > 0}
+              onClick={() => pressBump(-1)}
+            >
               −1
             </button>
-            <button type="button" className="cc-key cc-key--fn" onClick={() => pressBump(1)}>
+            <button
+              type="button"
+              className="cc-key cc-key--fn"
+              disabled={catalogConflicts.length > 0}
+              onClick={() => pressBump(1)}
+            >
               +1
             </button>
-            <button type="button" className="cc-key cc-key--fn" onClick={pressBackspace}>
+            <button
+              type="button"
+              className="cc-key cc-key--fn"
+              disabled={catalogConflicts.length > 0}
+              onClick={pressBackspace}
+            >
               ⌫
             </button>
             <button
               type="button"
               className="cc-key cc-key--danger"
+              disabled={catalogConflicts.length > 0 && !editHasConflict}
               onClick={() => removeUnit(editRow.key, editUnit.uom)}
             >
               ลบหน่วย
@@ -421,7 +536,7 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
           <button
             type="button"
             className="cc-foot__send"
-            disabled={rows.length === 0}
+            disabled={rows.length === 0 || catalogConflicts.length > 0}
             onClick={() => setConfirming(true)}
           >
             ส่งผลการนับ
@@ -505,11 +620,42 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
                 className="cc-sheet__ok"
                 disabled={submitState.kind === 'sending'}
                 onClick={async () => {
-                  await submit();
-                  setConfirming(false);
+                  const outcome = await submit();
+                  if (outcome !== 'error') setConfirming(false);
                 }}
               >
-                {submitState.kind === 'sending' ? 'กำลังส่ง…' : 'ยืนยันส่ง'}
+                {submitState.kind === 'sending' ? 'กำลังตรวจและส่ง…' : 'ยืนยันส่ง'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {catalogNoticeOpen && catalogConflicts.length > 0 && (
+        <div className="cc-sheet" role="dialog" aria-modal="true" aria-label="รายการสินค้าเปลี่ยน">
+          <div className="cc-sheet__panel">
+            <h2 className="cc-sheet__title">รายการสินค้าในระบบเปลี่ยน</h2>
+            <p className="cc-sheet__warn">
+              ยังไม่ได้ส่งผลการนับ กรุณาลบหน่วยด้านล่างแล้วสแกนและนับใหม่ด้วยข้อมูลล่าสุด
+            </p>
+            <ul className="cc-catalog-conflicts">
+              {catalogConflicts.map((conflict) => (
+                <li key={`${conflict.rowKey}|${conflict.uom}|${conflict.barcode}`}>
+                  <b>{conflict.name}</b>
+                  <span>
+                    {conflict.barcode} · {conflict.uom}
+                  </span>
+                  <em>{catalogConflictText(conflict)}</em>
+                </li>
+              ))}
+            </ul>
+            <div className="cc-sheet__btns">
+              <button
+                type="button"
+                className="cc-sheet__ok"
+                onClick={() => setCatalogNoticeOpen(false)}
+              >
+                กลับไปแก้รายการ
               </button>
             </div>
           </div>
@@ -525,7 +671,8 @@ export default function CountLedgerScreen({ user, session, catalogCount, onSignO
           <div className="cc-sheet__panel">
             <h2 className="cc-sheet__title">รับสัญญาณสแกนได้ แต่หาบาร์โค้ดไม่เจอ</h2>
             <p className="cc-sheet__warn">
-              broadcast <code>{SCAN_ACTION}</code> มาถึงแล้ว แต่แอปยังไม่รู้ว่าบาร์โค้ดอยู่ในช่องชื่ออะไร
+              broadcast <code>{SCAN_ACTION}</code> มาถึงแล้ว
+              แต่แอปยังไม่รู้ว่าบาร์โค้ดอยู่ในช่องชื่ออะไร
               ดูรายการข้างล่างว่าช่องไหนมีบาร์โค้ดที่เพิ่งยิง แล้วแจ้งชื่อช่องนั้นให้ทีมพัฒนา
             </p>
 
