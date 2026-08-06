@@ -103,25 +103,65 @@ export async function sessionReport(sessionId: string): Promise<SessionReport | 
   if (!session) return null;
 
   /*
-   * ยอดที่นับได้ต่อ SKU ในหน่วยฐาน รวมทุกคนที่นับ SKU นั้น
-   * เก็บรายชื่อคนนับกับเวลาล่าสุดมาด้วย เพราะแอดมินต้องตามตัวคนที่นับผิดได้
-   *
-   * sku เป็น null ได้ (ยิงแล้วไม่พบใน master) — group ด้วย line_key แทน
-   * ไม่งั้น Postgres จะยุบของที่ไม่รู้จักทุกตัวรวมเป็นแถวเดียว
+   * ยอดที่นับได้ต่อ SKU, จำนวน SKU ที่มียอดตั้งต้น, รายชื่อพนักงาน, และสถิติรายคน —
+   * ทั้งสี่ query นี้ต้องการแค่ sessionId เดียวกัน ไม่ได้พึ่งผลลัพธ์ของกันและกันเลย
+   * เดิมรอทีละตัวทำให้หน้ารายงานช้าขึ้นเปล่า ๆ ตามจำนวน round trip ไป Postgres
+   * ดึงพร้อมกันด้วย Promise.all แทน
    */
-  const counted = await db
-    .select({
-      sku: countLines.sku,
-      lineKey: countLines.lineKey,
-      scannedBarcode: sql<string>`max(${countLines.scannedBarcode})`,
-      baseQty: sql<string>`sum(${countLines.countedQty} * ${countLines.factorToBase})`,
-      flagged: sql<boolean>`bool_or(${countLines.flagged})`,
-      lastAt: sql<string>`max(${countLines.countedAt})`,
-      counters: sql<string[]>`array_agg(DISTINCT ${countLines.countedBy}::text)`,
-    })
-    .from(countLines)
-    .where(eq(countLines.sessionId, sessionId))
-    .groupBy(countLines.sku, countLines.lineKey);
+  const [counted, expectedCount, profileRows, perCounter] = await Promise.all([
+    db
+      .select({
+        sku: countLines.sku,
+        lineKey: countLines.lineKey,
+        scannedBarcode: sql<string>`max(${countLines.scannedBarcode})`,
+        baseQty: sql<string>`sum(${countLines.countedQty} * ${countLines.factorToBase})`,
+        flagged: sql<boolean>`bool_or(${countLines.flagged})`,
+        lastAt: sql<string>`max(${countLines.countedAt})`,
+        counters: sql<string[]>`array_agg(DISTINCT ${countLines.countedBy}::text)`,
+      })
+      .from(countLines)
+      .where(eq(countLines.sessionId, sessionId))
+      .groupBy(countLines.sku, countLines.lineKey),
+    db.execute(sql`
+      SELECT count(DISTINCT sku)::int AS n
+      FROM cycle_count.expected_stock WHERE session_id = ${sessionId}::uuid
+    `) as unknown as Promise<{ n: number }[]>,
+    /** ชื่อคนนับอ่านง่ายกว่า uuid — ดึงมาแปลงทีเดียว */
+    db.execute(sql`
+      SELECT user_id::text AS id, employee_code, name FROM cycle_count.profiles
+    `) as unknown as Promise<{ id: string; employee_code: string; name: string }[]>,
+    /*
+     * สถิติรายคน — group ที่ระดับ counted_by ตรง ๆ จะได้ตัวเลขที่ไม่ขึ้นกับการยุบแถวข้างล่าง
+     * coalesce(sku, line_key) เพราะของที่ไม่รู้จักมี sku เป็น null แต่ยังต้องนับเป็นรายการ
+     */
+    db.execute(sql`
+      SELECT counted_by::text AS id,
+             count(DISTINCT coalesce(sku, line_key))::int AS skus,
+             count(*)::int AS lines,
+             sum(counted_qty * factor_to_base)::float8 AS base,
+             max(counted_at) AS last_at
+      FROM cycle_count.count_lines
+      WHERE session_id = ${sessionId}::uuid
+      GROUP BY counted_by
+    `) as unknown as Promise<
+      { id: string; skus: number; lines: number; base: number; last_at: Date | string | null }[]
+    >,
+  ]);
+
+  const expectedSkus = Number(expectedCount[0]?.n ?? 0);
+  const nameOf = new Map(profileRows.map((p) => [p.id, p.employee_code]));
+  const fullNameOf = new Map(profileRows.map((p) => [p.id, p.name]));
+
+  const counterStats: CounterStat[] = perCounter
+    .map((c) => ({
+      employeeCode: nameOf.get(c.id) ?? c.id.slice(0, 8),
+      name: fullNameOf.get(c.id) ?? '(ไม่พบชื่อ)',
+      skus: Number(c.skus),
+      lines: Number(c.lines),
+      baseQty: round4(Number(c.base ?? 0)),
+      lastCountedAt: c.last_at ? new Date(c.last_at).toISOString() : null,
+    }))
+    .sort((a, b) => b.skus - a.skus);
 
   /* ยุบหลายหน่วยของ SKU เดียวกันให้เหลือแถวเดียว — หน้าจอคิดเป็นราย SKU */
   const bySku = new Map<
@@ -148,71 +188,34 @@ export async function sessionReport(sessionId: string): Promise<SessionReport | 
 
   const skus = [...bySku.values()].map((v) => v.sku).filter((s): s is string => Boolean(s));
 
-  const expectedRows = skus.length
-    ? await db
-        .select({
-          sku: expectedStock.sku,
-          baseQty: sql<string>`sum(${expectedStock.expectedQty} * coalesce(${uomConversions.factorToBase}, 1))`,
-        })
-        .from(expectedStock)
-        .leftJoin(
-          uomConversions,
-          and(eq(uomConversions.sku, expectedStock.sku), eq(uomConversions.uom, expectedStock.uom)),
-        )
-        .where(and(eq(expectedStock.sessionId, sessionId), inArray(expectedStock.sku, skus)))
-        .groupBy(expectedStock.sku)
-    : [];
-
-  const productRows = skus.length
-    ? await db
-        .select({
-          sku: products.sku,
-          name: products.name,
-          baseUom: products.baseUom,
-          location: products.location,
-        })
-        .from(products)
-        .where(inArray(products.sku, skus))
-    : [];
-
-  const expectedCount = (await db.execute(sql`
-    SELECT count(DISTINCT sku)::int AS n
-    FROM cycle_count.expected_stock WHERE session_id = ${sessionId}::uuid
-  `)) as unknown as { n: number }[];
-  const expectedSkus = Number(expectedCount[0]?.n ?? 0);
-
-  /** ชื่อคนนับอ่านง่ายกว่า uuid — ดึงมาแปลงทีเดียว */
-  const profileRows = (await db.execute(sql`
-    SELECT user_id::text AS id, employee_code, name FROM cycle_count.profiles
-  `)) as unknown as { id: string; employee_code: string; name: string }[];
-  const nameOf = new Map(profileRows.map((p) => [p.id, p.employee_code]));
-  const fullNameOf = new Map(profileRows.map((p) => [p.id, p.name]));
-
-  /*
-   * สถิติรายคน — group ที่ระดับ counted_by ตรง ๆ จะได้ตัวเลขที่ไม่ขึ้นกับการยุบแถวข้างล่าง
-   * coalesce(sku, line_key) เพราะของที่ไม่รู้จักมี sku เป็น null แต่ยังต้องนับเป็นรายการ
-   */
-  const perCounter = (await db.execute(sql`
-    SELECT counted_by::text AS id,
-           count(DISTINCT coalesce(sku, line_key))::int AS skus,
-           count(*)::int AS lines,
-           sum(counted_qty * factor_to_base)::float8 AS base,
-           max(counted_at) AS last_at
-    FROM cycle_count.count_lines
-    WHERE session_id = ${sessionId}::uuid
-    GROUP BY counted_by
-  `)) as unknown as { id: string; skus: number; lines: number; base: number; last_at: Date | string | null }[];
-
-  const counterStats: CounterStat[] = perCounter
-    .map((c) => ({
-      employeeCode: nameOf.get(c.id) ?? c.id.slice(0, 8),
-      name: fullNameOf.get(c.id) ?? '(ไม่พบชื่อ)',
-      skus: Number(c.skus),
-      lines: Number(c.lines),
-      baseQty: round4(Number(c.base ?? 0)),
-      lastCountedAt: c.last_at ? new Date(c.last_at).toISOString() : null,
-    }))
-    .sort((a, b) => b.skus - a.skus);
+  /* expectedRows กับ productRows ต่างพึ่งแค่ skus ไม่ได้พึ่งกันเอง ดึงพร้อมกันได้เช่นกัน */
+  const [expectedRows, productRows] = await Promise.all([
+    skus.length
+      ? db
+          .select({
+            sku: expectedStock.sku,
+            baseQty: sql<string>`sum(${expectedStock.expectedQty} * coalesce(${uomConversions.factorToBase}, 1))`,
+          })
+          .from(expectedStock)
+          .leftJoin(
+            uomConversions,
+            and(eq(uomConversions.sku, expectedStock.sku), eq(uomConversions.uom, expectedStock.uom)),
+          )
+          .where(and(eq(expectedStock.sessionId, sessionId), inArray(expectedStock.sku, skus)))
+          .groupBy(expectedStock.sku)
+      : Promise.resolve([]),
+    skus.length
+      ? db
+          .select({
+            sku: products.sku,
+            name: products.name,
+            baseUom: products.baseUom,
+            location: products.location,
+          })
+          .from(products)
+          .where(inArray(products.sku, skus))
+      : Promise.resolve([]),
+  ]);
 
   const expectedBySku = new Map(expectedRows.map((r) => [r.sku, Number(r.baseQty)]));
   const productBySku = new Map(productRows.map((r) => [r.sku, r]));

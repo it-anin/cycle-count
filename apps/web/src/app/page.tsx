@@ -6,6 +6,7 @@
  * (รอบเก่าเข้าถึงได้จาก URL ตรง ๆ ไว้ค่อยทำตัวสลับรอบตอนมีหลายคลัง)
  */
 import { desc } from 'drizzle-orm';
+import { headers } from 'next/headers';
 import { redirect } from 'next/navigation';
 
 import { countSessions } from '@cycle-count/db';
@@ -19,7 +20,7 @@ export const preferredRegion = 'sin1';
 
 export default async function HomePage() {
   try {
-    await requireRole(new Request('http://localhost'), 'admin');
+    await requireRole(new Request('http://localhost', { headers: await headers() }), 'admin');
   } catch (err) {
     if (err instanceof ApiError && err.status === 401) redirect('/login');
     if (err instanceof ApiError && err.status === 403) {
